@@ -1,0 +1,69 @@
+app:
+  name: "AI-Driven Smart Traffic Violation Detection and Alert System"
+  version: "1.0.0"
+  demo_mode: true
+  device: "auto" # "cuda", "cpu", or "auto"
+  log_level: "INFO"
+
+detection:
+  model_traffic: "models/yolov8n.pt"
+  model_helmet: "models/helmet_model.pt"
+  model_plate: "models/plate_model.pt"
+  confidence: 0.35
+  iou: 0.45
+  input_size: 640
+
+tracking:
+  algorithm: "bytetrack" # "bytetrack" or "deepsort"
+  track_thresh: 0.35
+  track_buffer: 30
+  match_thresh: 0.8
+
+association:
+  spatial_iou_threshold: 0.15
+  max_rider_bike_distance: 120 # pixels
+
+ocr:
+  engine: "easyocr" # "easyocr", "paddleocr", "tesseract"
+  languages: ["en"]
+  multi_frame_voting: true
+  min_confidence: 0.4
+  plate_regex: "^[A-Z]{2}[0-9]{1,2}[A-Z]{0,3}[0-9]{4}$" # Indian vehicle registration pattern
+
+violations:
+  helmet: true
+  triple_riding: true
+  red_light: true
+  wrong_way: true
+  seatbelt: true
+  mobile_phone: true
+
+temporal_confirmation:
+  window: 10
+  minimum_positive_frames: 6
+  violation_cooldown_seconds: 10
+
+evidence:
+  pre_seconds: 4
+  post_seconds: 4
+  fps_fallback: 25
+  save_dir: "data/evidence"
+
+database:
+  url: "sqlite:///./data/traffic_system.db" # Fallback SQLite, or "postgresql://user:password@localhost:5432/traffic_db"
+
+alerts:
+  enable_console: true
+  enable_dashboard: true
+  enable_sms: false
+  sms_provider: "mock" # "twilio", "fast2sms", "mock"
+  enable_email: false
+
+cameras:
+  default_stop_line:
+    x1: 150
+    y1: 520
+    x2: 1100
+    y2: 520
+  default_lane_direction: [0, 1] # Primary flow vector [dx, dy] (downward)
+  max_angle_deviation_deg: 120 # degrees before flagged as wrong-way

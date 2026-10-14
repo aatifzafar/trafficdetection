@@ -1,0 +1,46 @@
+version: '3.8'
+
+services:
+  postgres:
+    image: postgres:15-alpine
+    container_name: traffic_db
+    environment:
+      POSTGRES_USER: traffic_admin
+      POSTGRES_PASSWORD: traffic_secure_password
+      POSTGRES_DB: traffic_system
+    ports:
+      - "5432:5432"
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+
+  backend:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: traffic_backend
+    command: uvicorn backend.main:app --host 0.0.0.0 --port 8000 --reload
+    volumes:
+      - .:/app
+    ports:
+      - "8000:8000"
+    environment:
+      - DATABASE_URL=postgresql://traffic_admin:traffic_secure_password@postgres:5432/traffic_system
+      - DEMO_MODE=true
+    depends_on:
+      - postgres
+
+  dashboard:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: traffic_dashboard
+    command: streamlit run dashboard/app.py --server.port 8501 --server.address 0.0.0.0
+    volumes:
+      - .:/app
+    ports:
+      - "8501:8501"
+    depends_on:
+      - backend
+
+volumes:
+  pgdata:

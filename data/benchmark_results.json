@@ -1,0 +1,15 @@
+{
+  "device": "cpu",
+  "model": "models/yolov8n.pt",
+  "tracker": "bytetrack",
+  "input_resolution": "640x640",
+  "iterations": 30,
+  "total_time_sec": 1.31,
+  "average_fps": 22.85,
+  "mean_latency_ms": 40.79,
+  "median_latency_ms": 40.56,
+  "p95_latency_ms": 44.34,
+  "min_latency_ms": 37.53,
+  "max_latency_ms": 45.83,
+  "timestamp": "2026-10-07 09:51:51"
+}
