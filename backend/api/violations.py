@@ -1,6 +1,7 @@
 import os
 import json
 import logging
+import datetime
 from typing import List, Optional
 from fastapi import APIRouter, Depends, HTTPException, Query
 from sqlalchemy.orm import Session
@@ -43,6 +44,9 @@ def get_violations(
     return violations
 
 
+from backend.services.challan_service import challan_service
+
+
 @router.get("/{viol_id}", response_model=ViolationDetailResponse)
 def get_violation_by_id(viol_id: int, db: Session = Depends(get_db)):
     """Retrieve detailed violation record with attached evidence references."""
@@ -77,3 +81,65 @@ def get_violation_evidence(viol_id: int, db: Session = Depends(get_db)):
         "video_path": evidence.video_path if evidence else None,
         "metadata": meta_content,
     }
+
+
+@router.get("/{viol_id}/challan")
+def get_violation_challan(viol_id: int, db: Session = Depends(get_db)):
+    """Generate or retrieve official Motor Vehicles Act e-challan notice."""
+    viol = db.query(Violation).filter(Violation.id == viol_id).first()
+    if not viol:
+        raise HTTPException(status_code=404, detail="Violation not found")
+
+    evidence = db.query(Evidence).filter(Evidence.violation_id == viol_id).first()
+    img_path = evidence.image_path if evidence else viol.evidence_path
+
+    challan = challan_service.generate_challan(
+        violation_id=viol.id,
+        event_id=viol.event_id,
+        violation_type=viol.violation_type,
+        plate_number=viol.plate_number,
+        location=viol.location,
+        timestamp=viol.timestamp or datetime.datetime.utcnow(),
+        confidence=viol.confidence,
+        evidence_image_path=img_path,
+    )
+    return challan
+
+
+@router.post("/{viol_id}/issue-challan")
+def issue_violation_challan(viol_id: int, db: Session = Depends(get_db)):
+    """Formally issue e-challan and update violation status to CHALLAN_ISSUED."""
+    viol = db.query(Violation).filter(Violation.id == viol_id).first()
+    if not viol:
+        raise HTTPException(status_code=404, detail="Violation not found")
+
+    viol.status = "CHALLAN_ISSUED"
+    db.commit()
+
+    evidence = db.query(Evidence).filter(Evidence.violation_id == viol_id).first()
+    img_path = evidence.image_path if evidence else viol.evidence_path
+
+    challan = challan_service.generate_challan(
+        violation_id=viol.id,
+        event_id=viol.event_id,
+        violation_type=viol.violation_type,
+        plate_number=viol.plate_number,
+        location=viol.location,
+        timestamp=viol.timestamp or datetime.datetime.utcnow(),
+        confidence=viol.confidence,
+        evidence_image_path=img_path,
+    )
+    return {"message": "E-Challan successfully dispatched", "challan": challan}
+
+
+@router.post("/{viol_id}/status")
+def update_violation_status(viol_id: int, new_status: str = Query(..., description="CONFIRMED, PENDING_REVIEW, DISMISSED, CHALLAN_ISSUED"), db: Session = Depends(get_db)):
+    """Update violation audit status."""
+    viol = db.query(Violation).filter(Violation.id == viol_id).first()
+    if not viol:
+        raise HTTPException(status_code=404, detail="Violation not found")
+
+    viol.status = new_status.upper()
+    db.commit()
+    return {"message": f"Violation status updated to {viol.status}", "status": viol.status}
+

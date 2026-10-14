@@ -4,12 +4,12 @@
   "tracker": "bytetrack",
   "input_resolution": "640x640",
   "iterations": 30,
-  "total_time_sec": 1.31,
-  "average_fps": 22.85,
-  "mean_latency_ms": 40.79,
-  "median_latency_ms": 40.56,
-  "p95_latency_ms": 44.34,
-  "min_latency_ms": 37.53,
-  "max_latency_ms": 45.83,
-  "timestamp": "2026-10-07 09:51:51"
+  "total_time_sec": 1.24,
+  "average_fps": 24.24,
+  "mean_latency_ms": 39.06,
+  "median_latency_ms": 38.96,
+  "p95_latency_ms": 41.14,
+  "min_latency_ms": 35.65,
+  "max_latency_ms": 41.29,
+  "timestamp": "2026-10-14 15:45:02"
 }

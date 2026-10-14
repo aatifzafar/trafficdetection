@@ -83,5 +83,24 @@ def test_database_violation_insertion():
         viols = response.json()
         assert len(viols) >= 1
         assert viols[0]["event_id"] == unique_event
+        viol_id = viols[0]["id"]
+
+        # Test challan generation
+        res_ch = client.get(f"/api/violations/{viol_id}/challan")
+        assert res_ch.status_code == 200
+        challan_data = res_ch.json()
+        assert "KA-BTP-" in challan_data["challan_number"]
+        assert challan_data["fine_amount_inr"] == 1000
+        assert "Section 194D" in challan_data["mv_act_section"]
+
+        # Test challan issuance
+        res_issue = client.post(f"/api/violations/{viol_id}/issue-challan")
+        assert res_issue.status_code == 200
+        assert res_issue.json()["challan"]["violation_id"] == viol_id
+
+        # Verify status updated
+        v_check = db.query(Violation).filter(Violation.id == viol_id).first()
+        assert v_check.status == "CHALLAN_ISSUED"
     finally:
         db.close()
+
