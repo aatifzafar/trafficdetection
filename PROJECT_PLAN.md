@@ -1,7 +1,7 @@
 # B.Tech Design Project-I: Project Plan & Architectural Blueprint
 
 **Project Title:** AI-Driven Smart Traffic Violation Detection and Alert System  
-**Lead AI Engineer & Full-Stack Developer:** Antigravity AI  
+**Lead AI Engineer & Full-Stack Developer:** Aatif Zafar  
 **Scope:** Real-Time Traffic Violation Detection, Multi-Object Tracking, Evidence Generation, Multi-Frame License Plate Recognition (ALPR), and Command Center Dashboard.
 
 ---

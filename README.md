@@ -1,7 +1,7 @@
 # AI-Driven Smart Traffic Violation Detection and Alert System
 
 **B.Tech Design Project-I**  
-**Lead AI Engineer & Full-Stack Developer:** Antigravity AI  
+**Lead AI Engineer & Full-Stack Developer:** Aatif Zafar  
 **Deployment Profile:** Real-Time Traffic Surveillance & Violation Enforcement System (Research Prototype)
 
 [![Python 3.11+](https://img.shields.io/badge/Python-3.11%2B-blue.svg)](https://www.python.org/)
