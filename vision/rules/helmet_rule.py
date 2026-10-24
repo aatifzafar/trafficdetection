@@ -62,7 +62,7 @@ class HelmetViolationRule(BaseViolationRule):
 
         for group in groups:
             bike_id = group.motorcycle.track_id
-            for rider in group.riders:
+            for rider_idx, rider in enumerate(group.riders):
                 rx1, ry1, rx2, ry2 = [float(v) for v in rider.bbox]
                 rider_h = ry2 - ry1
                 if rider_h < 30:
@@ -113,8 +113,13 @@ class HelmetViolationRule(BaseViolationRule):
                             is_no_helmet = True
                             conf = min(0.92, 0.70 + float((skin_ratio + edge_ratio) * 1.5))
 
+                # Track cooldown per seating position on this motorcycle (driver vs pillion)
+                # to prevent duplicate penalties caused by tracker ID switches across momentary occlusions
+                seat_role = "driver" if rider_idx == 0 else f"pillion_{rider_idx}"
+                cooldown_key = f"{bike_id}_{seat_role}"
+
                 # Temporal confirmation check using video time
-                if self.record_frame_evidence(rider.track_id, is_no_helmet, current_time=current_time):
+                if self.record_frame_evidence(cooldown_key, is_no_helmet, current_time=current_time):
                     violations.append({
                         "violation_type": "NO_HELMET",
                         "track_id": bike_id,
@@ -124,6 +129,8 @@ class HelmetViolationRule(BaseViolationRule):
                         "evidence_required": True,
                         "extra": {
                             "bike_track_id": bike_id,
+                            "rider_track_id": rider.track_id,
+                            "seat_role": seat_role,
                             "rider_count": group.rider_count,
                             "mode": mode,
                         },
