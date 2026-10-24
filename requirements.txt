@@ -1,7 +1,7 @@
 # Core Machine Learning & Vision
 torch>=2.2.0
 torchvision>=0.17.0
-ultralytics>=8.1.0
+ultralytics>=8.4.0
 opencv-python>=4.9.0
 numpy>=1.26.0
 Pillow>=10.2.0

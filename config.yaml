@@ -6,7 +6,7 @@ app:
   log_level: "INFO"
 
 detection:
-  model_traffic: "models/yolov8n.pt"
+  model_traffic: "models/yolo26n.pt"
   model_helmet: "models/helmet_model.pt"
   model_plate: "models/plate_model.pt"
   confidence: 0.35

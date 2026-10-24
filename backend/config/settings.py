@@ -24,8 +24,7 @@ class Settings:
     DEVICE: str = _cfg.get("app", {}).get("device", "auto")
     DATABASE_URL: str = os.getenv("DATABASE_URL", _cfg.get("database", {}).get("url", "sqlite:///./data/traffic_system.db"))
     
-    # Models
-    MODEL_TRAFFIC: str = _cfg.get("detection", {}).get("model_traffic", "models/yolov8n.pt")
+    MODEL_TRAFFIC: str = _cfg.get("detection", {}).get("model_traffic", "models/yolo26n.pt")
     MODEL_HELMET: str = _cfg.get("detection", {}).get("model_helmet", "models/helmet_model.pt")
     MODEL_PLATE: str = _cfg.get("detection", {}).get("model_plate", "models/plate_model.pt")
     CONFIDENCE: float = float(_cfg.get("detection", {}).get("confidence", 0.35))

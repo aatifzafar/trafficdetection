@@ -74,7 +74,7 @@ class TrafficDetector:
 
     def __init__(
         self,
-        model_traffic_path: str = "models/yolov8n.pt",
+        model_traffic_path: str = "models/yolo26n.pt",
         model_helmet_path: Optional[str] = "models/helmet_model.pt",
         model_plate_path: Optional[str] = "models/plate_model.pt",
         confidence: float = 0.35,
