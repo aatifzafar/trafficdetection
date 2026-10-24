@@ -18,8 +18,8 @@ class HelmetViolationRule(BaseViolationRule):
     def __init__(
         self,
         temporal_window: int = 10,
-        min_positive_frames: int = 6,
-        cooldown_seconds: float = 10.0,
+        min_positive_frames: int = 4,
+        cooldown_seconds: float = 8.0,
     ):
         super().__init__(
             rule_name="NO_HELMET",
@@ -101,11 +101,17 @@ class HelmetViolationRule(BaseViolationRule):
                     head_crop = frame[max(0, int(ry1)):min(h_f, head_y2), max(0, int(rx1)):min(w_f, int(rx2))]
                     if head_crop.size > 0:
                         gray_head = cv2.cvtColor(head_crop, cv2.COLOR_BGR2GRAY)
-                        edges = cv2.Canny(gray_head, 80, 180)
+                        edges = cv2.Canny(gray_head, 50, 150)
                         edge_ratio = np.count_nonzero(edges) / max(1, edges.size)
-                        if edge_ratio > 0.08:
+
+                        hsv_head = cv2.cvtColor(head_crop, cv2.COLOR_BGR2HSV)
+                        skin_mask = cv2.inRange(hsv_head, np.array([0, 20, 40]), np.array([25, 255, 255]))
+                        skin_ratio = np.count_nonzero(skin_mask) / max(1, skin_mask.size)
+
+                        # Natural facial/hair edges or exposed skin indicate absence of a protective helmet
+                        if skin_ratio > 0.07 or edge_ratio > 0.02:
                             is_no_helmet = True
-                            conf = min(0.92, 0.70 + float(edge_ratio * 2.0))
+                            conf = min(0.92, 0.70 + float((skin_ratio + edge_ratio) * 1.5))
 
                 # Temporal confirmation check using video time
                 if self.record_frame_evidence(rider.track_id, is_no_helmet, current_time=current_time):

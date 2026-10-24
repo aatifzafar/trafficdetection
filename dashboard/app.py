@@ -852,10 +852,10 @@ def render_live_monitoring_page():
                 </div>
                 """, unsafe_allow_html=True)
 
-                evidence_placeholder.image(cv2.cvtColor(annotated_frame, cv2.COLOR_BGR2RGB), caption=f"Capture: {v_type} (ID: {last_viol_info.get('track_id')})", use_column_width=True)
+                evidence_placeholder.image(cv2.cvtColor(annotated_frame, cv2.COLOR_BGR2RGB), caption=f"Capture: {v_type} (ID: {last_viol_info.get('track_id')})", use_container_width=True)
 
             rgb_frame = cv2.cvtColor(annotated_frame, cv2.COLOR_BGR2RGB)
-            frame_placeholder.image(rgb_frame, channels="RGB", use_column_width=True)
+            frame_placeholder.image(rgb_frame, channels="RGB", use_container_width=True)
 
             status_bar.markdown(
                 f"**Frame:** `{frame_idx}` | **Live FPS:** `{pipeline.current_fps:.1f}` | "
@@ -1006,7 +1006,7 @@ def render_violations_page():
                     vid_path = evidence_rec.video_path if evidence_rec else None
 
                     if img_path and os.path.exists(img_path):
-                        st.image(img_path, caption=f"Snapshot Frame [{selected_viol.event_id}]", use_column_width=True)
+                        st.image(img_path, caption=f"Snapshot Frame [{selected_viol.event_id}]", use_container_width=True)
                     if vid_path and os.path.exists(vid_path):
                         st.video(vid_path)
 
