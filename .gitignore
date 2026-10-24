@@ -36,4 +36,6 @@ data/evidence/*
 # OS files
 .DS_Store
 Thumbs.db
-desktop.ini
+# Datasets
+datasets/
+training dataset/*.zip
