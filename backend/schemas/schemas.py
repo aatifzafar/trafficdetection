@@ -94,8 +94,8 @@ class AnalyticsSummaryResponse(BaseModel):
     today_violations: int
     active_cameras: int
     total_vehicles_seen: int
-    detection_fps: float
-    avg_latency_ms: float
+    detection_fps: Optional[float] = None
+    avg_latency_ms: Optional[float] = None
     demo_mode: bool
 
 

@@ -7,6 +7,7 @@ app:
 
 detection:
   model_traffic: "models/yolo26n.pt"
+  model_custom: "models/traffic_custom.pt"
   model_helmet: "models/helmet_model.pt"
   model_plate: "models/plate_model.pt"
   confidence: 0.35

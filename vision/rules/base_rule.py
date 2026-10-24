@@ -28,18 +28,21 @@ class BaseViolationRule(ABC):
         # track_id -> last violation trigger timestamp
         self.last_triggered: Dict[int, float] = {}
 
-    def is_cooling_down(self, track_id: int) -> bool:
+    def is_cooling_down(self, track_id: int, current_time: Optional[float] = None) -> bool:
         """Returns True if this track_id was recently flagged and is in cooldown period."""
         if track_id not in self.last_triggered:
             return False
-        return (time.time() - self.last_triggered[track_id]) < self.cooldown_seconds
+        now = current_time if current_time is not None else time.time()
+        return (now - self.last_triggered[track_id]) < self.cooldown_seconds
 
-    def record_frame_evidence(self, track_id: int, is_violating: bool) -> bool:
+    def record_frame_evidence(self, track_id: int, is_violating: bool, current_time: Optional[float] = None) -> bool:
         """
         Records frame status into sliding window.
         Returns True if confirmed violation threshold reached and cooldown expired.
+        Uses video time (frame_idx / fps) when current_time is passed.
         """
-        if self.is_cooling_down(track_id):
+        now = current_time if current_time is not None else time.time()
+        if self.is_cooling_down(track_id, current_time=now):
             return False
 
         dq = self.history[track_id]
@@ -48,7 +51,7 @@ class BaseViolationRule(ABC):
         if len(dq) >= self.min_positive_frames:
             positives = sum(1 for x in dq if x)
             if positives >= self.min_positive_frames:
-                self.last_triggered[track_id] = time.time()
+                self.last_triggered[track_id] = now
                 dq.clear()  # reset window after confirmed trigger
                 return True
 

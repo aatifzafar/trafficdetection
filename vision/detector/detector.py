@@ -75,6 +75,7 @@ class TrafficDetector:
     def __init__(
         self,
         model_traffic_path: str = "models/yolo26n.pt",
+        model_custom_path: Optional[str] = "models/traffic_custom.pt",
         model_helmet_path: Optional[str] = "models/helmet_model.pt",
         model_plate_path: Optional[str] = "models/plate_model.pt",
         confidence: float = 0.35,
@@ -91,34 +92,26 @@ class TrafficDetector:
         logger.info(f"Initializing TrafficDetector on device: {self.device}")
 
         # Primary Traffic Model (Vehicles, Riders, Traffic Lights, Cell Phones)
-        # Ultralytics downloads yolov8n.pt if not present locally
         self.model_traffic = YOLO(model_traffic_path)
 
-        # Custom Helmet Model check
-        self.helmet_model = None
-        self.has_custom_helmet_model = False
-        if model_helmet_path and Path(model_helmet_path).exists():
+        # Unified Custom Model check (classes: 0 helmet, 1 no_helmet, 2 number_plate)
+        self.model_custom = None
+        self.has_custom_model = False
+        if model_custom_path and Path(model_custom_path).exists():
             try:
-                self.helmet_model = YOLO(model_helmet_path)
-                self.has_custom_helmet_model = True
-                logger.info(f"Loaded custom helmet model from {model_helmet_path}")
+                self.model_custom = YOLO(model_custom_path)
+                self.has_custom_model = True
+                logger.info(f"Loaded unified custom model from {model_custom_path}")
             except Exception as e:
-                logger.warning(f"Failed to load custom helmet model: {e}")
+                logger.warning(f"Failed to load custom model from {model_custom_path}: {e}")
         else:
-            logger.info("Custom helmet model not found. Operating in Baseline/Prototype Mode.")
+            logger.info("Custom traffic model not found (models/traffic_custom.pt). Operating in Baseline Heuristic Mode.")
 
-        # Custom License Plate Model check
-        self.plate_model = None
-        self.has_custom_plate_model = False
-        if model_plate_path and Path(model_plate_path).exists():
-            try:
-                self.plate_model = YOLO(model_plate_path)
-                self.has_custom_plate_model = True
-                logger.info(f"Loaded custom plate model from {model_plate_path}")
-            except Exception as e:
-                logger.warning(f"Failed to load custom plate model: {e}")
-        else:
-            logger.info("Custom plate model not found. Plate crops will utilize vehicle candidate regions.")
+        # Legacy custom models support / aliases for backwards compatibility
+        self.helmet_model = self.model_custom
+        self.has_custom_helmet_model = self.has_custom_model
+        self.plate_model = self.model_custom
+        self.has_custom_plate_model = self.has_custom_model
 
     def _resolve_device(self, req_device: str) -> str:
         if req_device == "cuda":
@@ -131,6 +124,7 @@ class TrafficDetector:
     def detect(self, frame: np.ndarray) -> List[DetectionResult]:
         """
         Runs object detection on a single RGB/BGR frame.
+        Executes COCO model for vehicles/persons and optional custom model once for helmet/no_helmet/plate.
         """
         results = self.model_traffic(
             frame,
@@ -141,30 +135,59 @@ class TrafficDetector:
         )
 
         detections: List[DetectionResult] = []
-        if not results:
-            return detections
+        if results and len(results) > 0 and results[0].boxes is not None:
+            boxes = results[0].boxes
+            names = self.model_traffic.names
 
-        res = results[0]
-        boxes = res.boxes
+            for box in boxes:
+                xyxy = box.xyxy[0].cpu().numpy().tolist()
+                conf = float(box.conf[0].cpu().numpy())
+                cls_id = int(box.cls[0].cpu().numpy())
+                cls_name = names.get(cls_id, str(cls_id))
 
-        if boxes is None or len(boxes) == 0:
-            return detections
-
-        names = self.model_traffic.names
-
-        for box in boxes:
-            xyxy = box.xyxy[0].cpu().numpy()
-            conf = float(box.conf[0].cpu().numpy())
-            cls_id = int(box.cls[0].cpu().numpy())
-            cls_name = names.get(cls_id, str(cls_id))
-
-            detections.append(
-                DetectionResult(
-                    bbox=xyxy.tolist(),
-                    confidence=conf,
-                    class_id=cls_id,
-                    class_name=cls_name,
+                detections.append(
+                    DetectionResult(
+                        bbox=xyxy,
+                        confidence=conf,
+                        class_id=cls_id,
+                        class_name=cls_name,
+                    )
                 )
-            )
+
+        # Run custom model ONCE per frame on full frame if loaded
+        if self.has_custom_model and self.model_custom is not None:
+            try:
+                custom_results = self.model_custom(
+                    frame,
+                    conf=self.confidence,
+                    iou=self.iou,
+                    device=self.device,
+                    verbose=False,
+                )
+                if custom_results and len(custom_results) > 0 and custom_results[0].boxes is not None:
+                    c_boxes = custom_results[0].boxes
+                    c_names = getattr(self.model_custom, "names", {0: "helmet", 1: "no_helmet", 2: "number_plate"})
+                    for box in c_boxes:
+                        xyxy = box.xyxy[0].cpu().numpy().tolist()
+                        conf = float(box.conf[0].cpu().numpy())
+                        cls_id = int(box.cls[0].cpu().numpy())
+                        if isinstance(c_names, dict):
+                            cls_name = c_names.get(cls_id, str(cls_id))
+                        elif isinstance(c_names, list) and cls_id < len(c_names):
+                            cls_name = c_names[cls_id]
+                        else:
+                            cls_name = {0: "helmet", 1: "no_helmet", 2: "number_plate"}.get(cls_id, str(cls_id))
+
+                        detections.append(
+                            DetectionResult(
+                                bbox=xyxy,
+                                confidence=conf,
+                                class_id=cls_id,
+                                class_name=cls_name,
+                            )
+                        )
+            except Exception as e:
+                logger.warning(f"Custom model inference error: {e}")
 
         return detections
+

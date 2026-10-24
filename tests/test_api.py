@@ -89,7 +89,7 @@ def test_database_violation_insertion():
         res_ch = client.get(f"/api/violations/{viol_id}/challan")
         assert res_ch.status_code == 200
         challan_data = res_ch.json()
-        assert "KA-BTP-" in challan_data["challan_number"]
+        assert "PROTO-" in challan_data["challan_number"]
         assert challan_data["fine_amount_inr"] == 1000
         assert "Section 194D" in challan_data["mv_act_section"]
 

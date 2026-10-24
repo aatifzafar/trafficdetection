@@ -101,23 +101,65 @@ def test_wrong_way_direction_detection():
 
 
 def test_helmet_rule_detection():
+    from unittest.mock import MagicMock
+    from vision.detector.detector import DetectionResult
+
     rule = HelmetViolationRule(temporal_window=3, min_positive_frames=1, cooldown_seconds=5.0)
 
     bike = TrackedObject(track_id=12, class_name="motorcycle", class_id=3, bbox=[200, 200, 350, 350], confidence=0.9)
     group = MotorcycleRiderGroup(bike)
 
+    # Rider bbox: [220, 150, 300, 300] -> top 35% is Y in [150, 202.5], X in [220, 300]
     rider = TrackedObject(track_id=45, class_name="person", class_id=0, bbox=[220, 150, 300, 300], confidence=0.88)
     group.add_rider(rider)
 
-    # Dummy frame with high edge variance in head crop
-    dummy_frame = np.random.randint(0, 255, (400, 600, 3), dtype=np.uint8)
+    # Mock custom detector
+    mock_detector = MagicMock()
+    mock_detector.has_custom_model = True
+
+    # 1. Test no_helmet detection whose centre (260, 175) falls in top 35% of rider
+    no_helmet_det = DetectionResult(
+        bbox=[240, 160, 280, 190],
+        confidence=0.92,
+        class_id=1,
+        class_name="no_helmet",
+    )
 
     context = {
         "motorcycle_groups": [group],
-        "frame": dummy_frame,
+        "frame": np.zeros((400, 600, 3), dtype=np.uint8),
+        "detector": mock_detector,
+        "detections": [no_helmet_det],
+        "frame_idx": 0,
+        "fps": 25.0,
     }
 
     viols = rule.evaluate(context)
     assert len(viols) == 1
     assert viols[0]["violation_type"] == "NO_HELMET"
     assert viols[0]["track_id"] == 12
+    assert viols[0]["extra"]["mode"] == "CUSTOM_MODEL"
+
+    # 2. Test helmet detection: a helmet box in top 35% should NOT trigger a violation
+    bike2 = TrackedObject(track_id=13, class_name="motorcycle", class_id=3, bbox=[200, 200, 350, 350], confidence=0.9)
+    group2 = MotorcycleRiderGroup(bike2)
+    rider2 = TrackedObject(track_id=46, class_name="person", class_id=0, bbox=[220, 150, 300, 300], confidence=0.88)
+    group2.add_rider(rider2)
+
+    helmet_det = DetectionResult(
+        bbox=[240, 160, 280, 190],
+        confidence=0.95,
+        class_id=0,
+        class_name="helmet",
+    )
+    context_helmet = {
+        "motorcycle_groups": [group2],
+        "frame": np.zeros((400, 600, 3), dtype=np.uint8),
+        "detector": mock_detector,
+        "detections": [helmet_det],
+        "frame_idx": 0,
+        "fps": 25.0,
+    }
+    viols_helmet = rule.evaluate(context_helmet)
+    assert len(viols_helmet) == 0
+

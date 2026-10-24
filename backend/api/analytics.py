@@ -20,23 +20,40 @@ router = APIRouter(prefix="/api/analytics", tags=["Analytics"])
 @router.get("/summary", response_model=AnalyticsSummaryResponse)
 def get_summary(db: Session = Depends(get_db)):
     """Summary KPI metrics for command center dashboard."""
+    import json
+    from pathlib import Path
+
     total_violations = db.query(Violation).count()
 
-    today_start = datetime.datetime.utcnow().replace(hour=0, minute=0, second=0, microsecond=0)
+    today_start = datetime.datetime.now(datetime.timezone.utc).replace(hour=0, minute=0, second=0, microsecond=0, tzinfo=None)
     today_violations = db.query(Violation).filter(Violation.timestamp >= today_start).count()
 
     active_cameras = db.query(CameraSource).filter(CameraSource.status == "ONLINE").count()
     total_vehicles = db.query(Vehicle).count()
+
+    # Read real benchmark metrics if available; otherwise null
+    detection_fps = None
+    avg_latency_ms = None
+    bench_file = Path("data/benchmark_results.json")
+    if bench_file.exists():
+        try:
+            with open(bench_file, "r", encoding="utf-8") as f:
+                b_data = json.load(f)
+                detection_fps = b_data.get("average_fps")
+                avg_latency_ms = b_data.get("mean_latency_ms")
+        except Exception:
+            pass
 
     return AnalyticsSummaryResponse(
         total_violations=total_violations,
         today_violations=today_violations,
         active_cameras=active_cameras,
         total_vehicles_seen=total_vehicles,
-        detection_fps=28.4,
-        avg_latency_ms=35.2,
+        detection_fps=detection_fps,
+        avg_latency_ms=avg_latency_ms,
         demo_mode=settings.DEMO_MODE,
     )
+
 
 
 @router.get("/by-type", response_model=List[AnalyticsByTypeResponse])

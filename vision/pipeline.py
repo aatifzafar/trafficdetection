@@ -40,6 +40,7 @@ class TrafficVisionPipeline:
         # 1. Detector
         self.detector = TrafficDetector(
             model_traffic_path=settings.MODEL_TRAFFIC,
+            model_custom_path=getattr(settings, "MODEL_CUSTOM", "models/traffic_custom.pt"),
             model_helmet_path=settings.MODEL_HELMET,
             model_plate_path=settings.MODEL_PLATE,
             confidence=settings.CONFIDENCE,
@@ -64,8 +65,8 @@ class TrafficVisionPipeline:
             plate_regex=settings.PLATE_REGEX,
         )
 
-        # 5. Rule Engine
-        self.rule_engine = TrafficRuleEngine(config=config or {})
+        # 5. Rule Engine (pass real configuration)
+        self.rule_engine = TrafficRuleEngine(config=config or settings.CONFIG_RAW)
 
         # 6. Evidence Recorder
         self.evidence_recorder = EvidenceRecorder(
@@ -110,26 +111,22 @@ class TrafficVisionPipeline:
         # C. Rider-Motorcycle Association
         motorcycle_groups = self.associator.associate(tracked_objects)
 
-        # D. Number Plate Detection / Multi-frame OCR
-        for v in tracked_vehicles:
-            # Perform OCR periodically on vehicle bumper crop
-            existing_plate = self.plate_recognizer.get_track_plate(v.track_id)
-            if not existing_plate and (frame_idx % 4 == 0):
-                x1, y1, x2, y2 = [int(p) for p in v.bbox]
-                h, w = frame.shape[:2]
-                vh = y2 - y1
-                # Lower 40% bumper region
-                crop = frame[max(0, int(y1 + 0.6 * vh)):min(h, y2), max(0, x1):min(w, x2)]
-                if crop.size > 0:
-                    ocr_res = self.plate_recognizer.read_plate(crop)
-                    if ocr_res:
-                        text, conf = ocr_res
-                        self.plate_recognizer.update_track_plate(v.track_id, text, conf)
+        # D. Spatial association of number plate detections to vehicle boxes
+        vehicle_plate_boxes: Dict[int, List[float]] = {}
+        plate_dets = [d for d in detections if "plate" in d.class_name.lower()]
+        for p_det in plate_dets:
+            pcx, pcy = p_det.center
+            for v in tracked_vehicles:
+                vx1, vy1, vx2, vy2 = v.bbox
+                if vx1 <= pcx <= vx2 and vy1 <= pcy <= vy2:
+                    vehicle_plate_boxes[v.track_id] = p_det.bbox
+                    break
 
         # E. Violation Rules Evaluation
         context = {
             "frame": frame,
             "frame_idx": frame_idx,
+            "fps": fps,
             "detections": detections,
             "tracked_objects": tracked_objects,
             "tracked_vehicles": tracked_vehicles,
@@ -139,9 +136,43 @@ class TrafficVisionPipeline:
         }
         confirmed_violations = self.rule_engine.evaluate_frame(context)
 
-        # F. Persist Violations, Generate Evidence, and Dispatch Alerts
+        # F. OCR ONLY for vehicles with a confirmed violation (with 10% padding crop if custom model)
         for viol in confirmed_violations:
+            vid = viol.get("track_id")
+            if vid is not None:
+                if getattr(self.detector, "has_custom_model", False) and vid in vehicle_plate_boxes:
+                    px1, py1, px2, py2 = vehicle_plate_boxes[vid]
+                    pw = px2 - px1
+                    ph = py2 - py1
+                    h_f, w_f = frame.shape[:2]
+                    # Crop with 10% padding
+                    crop_x1 = max(0, int(round(px1 - 0.10 * pw)))
+                    crop_y1 = max(0, int(round(py1 - 0.10 * ph)))
+                    crop_x2 = min(w_f, int(round(px2 + 0.10 * pw)))
+                    crop_y2 = min(h_f, int(round(py2 + 0.10 * ph)))
+                    crop = frame[crop_y1:crop_y2, crop_x1:crop_x2]
+                    if crop.size > 0:
+                        ocr_res = self.plate_recognizer.read_plate(crop)
+                        if ocr_res:
+                            text, conf = ocr_res
+                            self.plate_recognizer.update_track_plate(vid, text, conf)
+                else:
+                    # Baseline bumper crop fallback if no custom model
+                    v_obj = next((v for v in tracked_vehicles if v.track_id == vid), None)
+                    if v_obj:
+                        vx1, vy1, vx2, vy2 = [int(p) for p in v_obj.bbox]
+                        h_f, w_f = frame.shape[:2]
+                        vh = vy2 - vy1
+                        crop = frame[max(0, int(vy1 + 0.6 * vh)):min(h_f, vy2), max(0, vx1):min(w_f, vx2)]
+                        if crop.size > 0:
+                            ocr_res = self.plate_recognizer.read_plate(crop)
+                            if ocr_res:
+                                text, conf = ocr_res
+                                self.plate_recognizer.update_track_plate(vid, text, conf)
+
+            # Persist violation, generate physical evidence, and dispatch alert
             self._handle_confirmed_violation(viol, frame, frame_idx, fps)
+
 
         # G. Render Annotations
         annotated_frame = self._render_annotations(

@@ -383,14 +383,46 @@ def render_dashboard_page():
     db = get_db_session()
     try:
         total_violations = db.query(Violation).count()
-        today_start = datetime.datetime.utcnow().replace(hour=0, minute=0, second=0, microsecond=0)
+        today_start = datetime.datetime.now(datetime.timezone.utc).replace(hour=0, minute=0, second=0, microsecond=0, tzinfo=None)
         today_violations = db.query(Violation).filter(Violation.timestamp >= today_start).count()
         active_cameras = db.query(CameraSource).filter(CameraSource.status == "ONLINE").count()
         total_vehicles = db.query(Vehicle).count()
+
+        # Read benchmark / evaluation metrics if present
+        eval_path = Path("data/evaluation_results.json")
+        bench_path = Path("data/benchmark_results.json")
+        
+        accuracy_display = "N/A"
+        accuracy_badge = "Pending Evaluation"
+        if eval_path.exists():
+            try:
+                with open(eval_path, "r", encoding="utf-8") as f_ev:
+                    ev_data = json.load(f_ev)
+                    mAP = ev_data.get("overall", {}).get("mAP50")
+                    if mAP is not None:
+                        accuracy_display = f"{mAP:.1%}"
+                        accuracy_badge = "mAP@0.5 Validation"
+            except Exception:
+                pass
+
+        latency_display = "N/A"
+        latency_badge = "Unbenchmarked"
+        if bench_path.exists():
+            try:
+                with open(bench_path, "r", encoding="utf-8") as f_bn:
+                    bn_data = json.load(f_bn)
+                    lat = bn_data.get("mean_latency_ms")
+                    if lat is not None:
+                        latency_display = f"{lat:.1f}ms"
+                        fps_val = bn_data.get("average_fps", 0)
+                        latency_badge = f"{fps_val:.1f} FPS benchmark"
+            except Exception:
+                pass
+
     finally:
         db.close()
 
-    # 5 KPI Cards exactly matching the screenshot
+    # 5 KPI Cards with real database and benchmark values
     c1, c2, c3, c4, c5 = st.columns(5)
     with c1:
         st.markdown(f"""
@@ -400,7 +432,7 @@ def render_dashboard_page():
                 <span class="kpi-dots">···</span>
             </div>
             <div class="kpi-main-val">{total_violations}</div>
-            <span class="kpi-badge-positive">▲ +18% last month</span>
+            <span class="kpi-badge-positive">● {today_violations} today</span>
         </div>
         """, unsafe_allow_html=True)
 
@@ -411,8 +443,8 @@ def render_dashboard_page():
                 <span class="kpi-title">Detection Accuracy</span>
                 <span class="kpi-dots">···</span>
             </div>
-            <div class="kpi-main-val">98.7%</div>
-            <span class="kpi-badge-positive">▲ 99.1% benchmark</span>
+            <div class="kpi-main-val">{accuracy_display}</div>
+            <span class="kpi-badge-neutral">{accuracy_badge}</span>
         </div>
         """, unsafe_allow_html=True)
 
@@ -423,8 +455,8 @@ def render_dashboard_page():
                 <span class="kpi-title">Average Latency</span>
                 <span class="kpi-dots">···</span>
             </div>
-            <div class="kpi-main-val">34.8ms</div>
-            <span class="kpi-badge-positive">▼ -4% latency</span>
+            <div class="kpi-main-val">{latency_display}</div>
+            <span class="kpi-badge-neutral">{latency_badge}</span>
         </div>
         """, unsafe_allow_html=True)
 
@@ -435,8 +467,8 @@ def render_dashboard_page():
                 <span class="kpi-title">Vehicles Tracked</span>
                 <span class="kpi-dots">···</span>
             </div>
-            <div class="kpi-main-val">{max(128, total_vehicles)}</div>
-            <span class="kpi-badge-positive">▲ +12% today</span>
+            <div class="kpi-main-val">{total_vehicles}</div>
+            <span class="kpi-badge-positive">● Unique Registered</span>
         </div>
         """, unsafe_allow_html=True)
 
@@ -447,14 +479,14 @@ def render_dashboard_page():
                 <span class="kpi-title">Active Cameras</span>
                 <span class="kpi-dots">···</span>
             </div>
-            <div class="kpi-main-val">{active_cameras or 3}</div>
-            <span class="kpi-badge-neutral">● 100% Online</span>
+            <div class="kpi-main-val">{active_cameras}</div>
+            <span class="kpi-badge-neutral">● Monitored Junctions</span>
         </div>
         """, unsafe_allow_html=True)
 
     st.write("")
 
-    # Middle Section: Left is Incident Bar Chart, Right is Donut Breakdown (matching screenshot)
+    # Middle Section: Real DB-queried charts
     col_chart_left, col_chart_right = st.columns([7, 5])
 
     with col_chart_left:
@@ -466,8 +498,19 @@ def render_dashboard_page():
             </div>
             """, unsafe_allow_html=True)
 
-            months = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"]
-            incidents = [32, 45, 48, 38, 42, 28, 46, 68, 40, 44, 30, 41]
+            db_m = get_db_session()
+            all_viols = db_m.query(Violation.timestamp).all()
+            db_m.close()
+
+            month_names = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"]
+            month_counts = {m: 0 for m in month_names}
+            for (ts,) in all_viols:
+                if ts:
+                    m_idx = ts.month - 1
+                    month_counts[month_names[m_idx]] += 1
+
+            months = month_names
+            incidents = [month_counts[m] for m in months]
 
             fig_perf = go.Figure(data=[
                 go.Bar(
@@ -497,17 +540,35 @@ def render_dashboard_page():
             st.markdown("""
             <div class="card-title-row">
                 <h3 class="card-title">Violation Category Breakdown</h3>
-                <span style="font-size: 12px; font-weight: 600; color: #64748b; background: #f1f5f9; padding: 4px 10px; border-radius: 9999px;">This Month ▾</span>
+                <span style="font-size: 12px; font-weight: 600; color: #64748b; background: #f1f5f9; padding: 4px 10px; border-radius: 9999px;">Real DB ▾</span>
             </div>
             """, unsafe_allow_html=True)
 
-            categories = ["No Helmet", "Red Light", "Triple Riding", "Wrong Way", "Phone / Other"]
-            counts = [48, 27, 16, 12, 10]
-            colors = ["#ea580c", "#0f172a", "#475569", "#94a3b8", "#cbd5e1"]
+            db_c = get_db_session()
+            from sqlalchemy import func
+            cat_results = (
+                db_c.query(Violation.violation_type, func.count(Violation.id))
+                .group_by(Violation.violation_type)
+                .order_by(func.count(Violation.id).desc())
+                .all()
+            )
+            db_c.close()
+
+            if cat_results:
+                categories = [r[0].replace("_", " ").title() for r in cat_results]
+                counts = [r[1] for r in cat_results]
+                base_colors = ["#ea580c", "#0f172a", "#475569", "#94a3b8", "#cbd5e1"]
+                colors = (base_colors * ((len(categories) // len(base_colors)) + 1))[:len(categories)]
+                top_cat = categories[0]
+            else:
+                categories = ["No Incidents"]
+                counts = [0]
+                colors = ["#cbd5e1"]
+                top_cat = "None"
 
             fig_donut = go.Figure(data=[go.Pie(
                 labels=categories,
-                values=counts,
+                values=counts if sum(counts) > 0 else [1],
                 hole=0.68,
                 marker=dict(colors=colors),
                 textinfo='none',
@@ -518,16 +579,17 @@ def render_dashboard_page():
                 paper_bgcolor="#ffffff",
                 plot_bgcolor="#ffffff",
                 showlegend=False,
-                annotations=[dict(text='<b>Top Category</b><br><span style="font-size:14px; color:#ea580c;">No Helmet</span>', x=0.5, y=0.5, font_size=12, showarrow=False)]
+                annotations=[dict(text=f'<b>Top Category</b><br><span style="font-size:14px; color:#ea580c;">{top_cat}</span>', x=0.5, y=0.5, font_size=12, showarrow=False)]
             )
             st.plotly_chart(fig_donut, use_container_width=True)
 
-            total_c = sum(counts)
+            total_c = max(1, sum(counts))
             cat_rows = "".join([
                 f'<tr style="border-bottom: 1px solid #f8fafc;"><td style="padding: 4px 8px; font-size: 12px; font-weight: 600;"><span style="color: {col}; font-size: 14px;">●</span> {cat}</td><td style="padding: 4px 8px; font-size: 12px; text-align: right; color: #64748b;">{int((cnt / total_c) * 100)}%</td><td style="padding: 4px 8px; font-size: 12px; text-align: right; font-weight: 700; color: #0f172a;">{cnt}</td></tr>'
                 for cat, cnt, col in zip(categories, counts, colors)
             ])
             st.markdown(f'<table style="width: 100%; border-collapse: collapse;">{cat_rows}</table>', unsafe_allow_html=True)
+
 
     # Bottom Row: 3 cards matching the reference image layout
     col_b1, col_b2, col_b3 = st.columns([5, 4, 3])
@@ -543,17 +605,18 @@ def render_dashboard_page():
 
             db = get_db_session()
             cams = db.query(CameraSource).all()
-            db.close()
             map_data = []
             for c in cams:
+                cam_violations = db.query(Violation).filter(Violation.camera_id == c.id).count()
                 map_data.append({
                     "Camera": c.name,
                     "Latitude": c.latitude or 12.9716,
                     "Longitude": c.longitude or 77.5946,
-                    "Violations": 18,
+                    "Violations": cam_violations,
                 })
+            db.close()
             if not map_data:
-                map_data = [{"Camera": "MG Road", "Latitude": 12.9754, "Longitude": 77.6067, "Violations": 24}]
+                map_data = [{"Camera": "MG Road", "Latitude": 12.9754, "Longitude": 77.6067, "Violations": 0}]
 
             df_map = pd.DataFrame(map_data)
             try:
@@ -562,7 +625,7 @@ def render_dashboard_page():
                         df_map,
                         lat="Latitude",
                         lon="Longitude",
-                        size="Violations",
+                        size="Violations" if df_map["Violations"].sum() > 0 else None,
                         hover_name="Camera",
                         color_discrete_sequence=["#ea580c"],
                         zoom=11,
@@ -578,7 +641,7 @@ def render_dashboard_page():
                         df_map,
                         lat="Latitude",
                         lon="Longitude",
-                        size="Violations",
+                        size="Violations" if df_map["Violations"].sum() > 0 else None,
                         hover_name="Camera",
                         color_discrete_sequence=["#ea580c"],
                         zoom=11,
@@ -601,25 +664,27 @@ def render_dashboard_page():
 </div>""", unsafe_allow_html=True)
             db_s = get_db_session()
             try:
-                tot_v = max(1, db_s.query(Violation).count())
+                tot_v = db_s.query(Violation).count()
                 conf_c = db_s.query(Violation).filter(Violation.status.in_(["CONFIRMED", "CHALLAN_ISSUED"])).count()
                 pend_c = db_s.query(Violation).filter(Violation.status == "PENDING_REVIEW").count()
                 dism_c = db_s.query(Violation).filter(Violation.status == "DISMISSED").count()
-                tot_det = tot_v * 7  # Dynamic tracking frames estimate
-                conf_pct = (conf_c / tot_v) * 100
-                pend_pct = (pend_c / tot_v) * 100
-                dism_pct = (dism_c / tot_v) * 100
+                tot_vehicles = db_s.query(Vehicle).count()
+                denom = max(1, tot_v)
+                conf_pct = (conf_c / denom) * 100
+                pend_pct = (pend_c / denom) * 100
+                dism_pct = (dism_c / denom) * 100
 
                 st.markdown(f"""
 <table class="clean-table">
 <tr><th>Metric</th><th>Count</th><th>Ratio</th></tr>
-<tr><td>Total Tracks</td><td><b>{tot_det:,}</b></td><td style="color: #059669;">100%</td></tr>
-<tr><td>Confirmed / Challan</td><td><b>{conf_c}</b></td><td style="color: #059669;">{conf_pct:.1f}%</td></tr>
+<tr><td>Total Vehicles</td><td><b>{tot_vehicles:,}</b></td><td style="color: #059669;">100%</td></tr>
+<tr><td>Confirmed / Notice</td><td><b>{conf_c}</b></td><td style="color: #059669;">{conf_pct:.1f}%</td></tr>
 <tr><td>Pending Review</td><td><b>{pend_c}</b></td><td style="color: #f59e0b;">{pend_pct:.1f}%</td></tr>
 <tr><td>Dismissed Noise</td><td><b>{dism_c}</b></td><td style="color: #64748b;">{dism_pct:.1f}%</td></tr>
 </table>""", unsafe_allow_html=True)
             finally:
                 db_s.close()
+
 
     with col_b3:
         with st.container(border=True):
@@ -898,13 +963,13 @@ def render_violations_page():
                             st.warning("Dismissed as Noise")
                             st.rerun()
                     with b3:
-                        if st.button("Issue E-Challan", type="primary"):
+                        if st.button("Issue Prototype Notice", type="primary"):
                             selected_viol.status = "CHALLAN_ISSUED"
                             db.commit()
-                            st.success("Official E-Challan Generated & Dispatched!")
+                            st.success("Prototype Violation Notice Generated!")
                             st.rerun()
 
-                    # Render Official E-Challan Notice if issued or requested
+                    # Render Prototype Violation Notice if issued or requested
                     if selected_viol.status == "CHALLAN_ISSUED":
                         challan_doc = challan_service.generate_challan(
                             violation_id=selected_viol.id,
@@ -918,21 +983,22 @@ def render_violations_page():
                         st.markdown(f"""
                         <div style="background-color: #fffbeb; border: 1.5px solid #f59e0b; border-radius: 12px; padding: 14px 16px; margin-top: 14px;">
                             <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 6px;">
-                                <span style="font-size: 12px; font-weight: 800; color: #b45309; text-transform: uppercase;">Official E-Challan Notice</span>
-                                <span style="background-color: #10b981; color: #fff; font-size: 10px; font-weight: 800; padding: 2px 8px; border-radius: 9999px;">DISPATCHED</span>
+                                <span style="font-size: 12px; font-weight: 800; color: #b45309; text-transform: uppercase;">Prototype violation notice</span>
+                                <span style="background-color: #10b981; color: #fff; font-size: 10px; font-weight: 800; padding: 2px 8px; border-radius: 9999px;">GENERATED</span>
                             </div>
-                            <div style="font-size: 14px; font-weight: 800; color: #0f172a;">Challan No: {challan_doc['challan_number']}</div>
+                            <div style="font-size: 14px; font-weight: 800; color: #0f172a;">Notice No: {challan_doc['challan_number']}</div>
                             <div style="font-size: 12px; color: #475569; margin-top: 4px;">{challan_doc['offense_description']}</div>
-                            <div style="font-size: 12px; font-weight: 700; color: #dc2626; margin-top: 6px;">Penalty: ₹{challan_doc['fine_amount_inr']:,} | Due Date: {challan_doc['due_date']}</div>
+                            <div style="font-size: 12px; font-weight: 700; color: #dc2626; margin-top: 6px;">Fine: ₹{challan_doc['fine_amount_inr']:,} | Due Date: {challan_doc['due_date']}</div>
                             <div style="font-size: 11px; color: #64748b; margin-top: 4px;">Ref Hash: {challan_doc['verification_hash']}</div>
                         </div>
                         """, unsafe_allow_html=True)
                         st.download_button(
-                            label="Download Legal Challan Notice (JSON)",
+                            label="Download Prototype Violation Notice (JSON)",
                             data=json.dumps(challan_doc, indent=2),
                             file_name=f"{challan_doc['challan_number']}.json",
                             mime="application/json",
                         )
+
 
 
                 with v_col2:
@@ -1151,42 +1217,58 @@ def render_evaluation_page():
     st.markdown("""
     <div class="dashboard-header">
         <div class="header-left">
-            <h1>Model Accuracy & Hardware Benchmarks</h1>
+            <h1>Model Accuracy & Validation Metrics</h1>
             <p>Empirical evaluation against ground-truth validation datasets</p>
         </div>
     </div>
     """, unsafe_allow_html=True)
 
+    eval_json_path = Path("data/evaluation_results.json")
+    if not eval_json_path.exists():
+        st.warning("Not evaluated yet")
+        st.info("Validation results have not been generated yet. When model training on Google Colab completes, copy evaluation_results.json to data/evaluation_results.json to view empirical metrics.")
+        return
+
+    try:
+        with open(eval_json_path, "r", encoding="utf-8") as f:
+            eval_data = json.load(f)
+    except Exception as e:
+        st.error(f"Error reading evaluation results: {e}")
+        return
+
     with st.container(border=True):
-        bench_json_path = Path("data/benchmark_results.json")
-        if bench_json_path.exists():
-            with open(bench_json_path, "r") as f:
-                b_data = json.load(f)
-            col1, col2, col3, col4 = st.columns(4)
-            with col1:
+        st.markdown(f"### Trained Model: `{eval_data.get('model', 'traffic_custom.pt')}`")
+        overall = eval_data.get("overall", {})
+        col1, col2, col3, col4 = st.columns(4)
+        col1.metric("Precision", f"{overall.get('precision', 0):.1%}")
+        col2.metric("Recall", f"{overall.get('recall', 0):.1%}")
+        col3.metric("mAP@0.50", f"{overall.get('mAP50', 0):.1%}")
+        col4.metric("mAP@0.50:0.95", f"{overall.get('mAP50_95', 0):.1%}")
+
+        st.write("")
+        st.markdown("### Per-Class Validation Breakdown")
+        per_class = eval_data.get("per_class", {})
+        if per_class:
+            df_pc = pd.DataFrame.from_dict(per_class, orient="index")
+            df_pc = df_pc.reset_index().rename(columns={"index": "Class"})
+            st.dataframe(df_pc, use_container_width=True)
+
+    # Hardware benchmark metrics if available
+    bench_json_path = Path("data/benchmark_results.json")
+    if bench_json_path.exists():
+        with open(bench_json_path, "r", encoding="utf-8") as f:
+            b_data = json.load(f)
+        with st.container(border=True):
+            st.markdown("### Hardware Latency Benchmarks")
+            bcol1, bcol2, bcol3, bcol4 = st.columns(4)
+            with bcol1:
                 st.metric("Device", b_data.get("device", "CPU").upper())
-            with col2:
-                st.metric("Average FPS", f"{b_data.get('average_fps', 22.8)} FPS")
-            with col3:
-                st.metric("Mean Latency", f"{b_data.get('mean_latency_ms', 40.8)} ms")
-            with col4:
-                st.metric("P95 Latency", f"{b_data.get('p95_latency_ms', 44.3)} ms")
-
-        st.write("")
-        if st.button("Run Live Hardware & Inference Benchmark (40 frames)", type="primary"):
-            with st.spinner("Executing real-time inference latency benchmark across PyTorch/YOLO and ByteTrack..."):
-                res = run_benchmark(num_frames=40, img_size=640)
-                st.success(f"Benchmark finished! Average FPS: {res['average_fps']} FPS | Mean Latency: {res['mean_latency_ms']} ms")
-                st.rerun()
-
-        st.write("")
-        st.info("Evaluation status: Model evaluated against synthetic benchmark suite.")
-        st.markdown("""
-        To run formal validation against an annotated dataset (such as IDD or RideSafe-400):
-        ```bash
-        python scripts/evaluate.py --dataset data/datasets/traffic_val.yaml
-        ```
-        """)
+            with bcol2:
+                st.metric("Average FPS", f"{b_data.get('average_fps', 0)} FPS")
+            with bcol3:
+                st.metric("Mean Latency", f"{b_data.get('mean_latency_ms', 0)} ms")
+            with bcol4:
+                st.metric("P95 Latency", f"{b_data.get('p95_latency_ms', 0)} ms")
 
 
 # ==========================================
@@ -1257,7 +1339,8 @@ def main():
     """, unsafe_allow_html=True)
 
     st.sidebar.markdown("---")
-    st.sidebar.caption(f"Hardware: {settings.DEVICE.upper()} | Model: YOLOv8n")
+    model_name = Path(settings.MODEL_TRAFFIC).name
+    st.sidebar.caption(f"Hardware: {settings.DEVICE.upper()} | Model: {model_name}")
     st.sidebar.caption(f"Tracker: {settings.TRACKER_ALGO.upper()} | OCR: {settings.OCR_ENGINE.upper()}")
     st.sidebar.caption("Theme: Light Modern Control Center")
 

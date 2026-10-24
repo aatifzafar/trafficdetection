@@ -122,9 +122,11 @@ class ByteTrackTracker(BaseTracker):
 
                 return active_tracks
             except Exception as e:
-                logger.debug(f"ByteTracker engine step failed: {e}. Falling back to internal IoU matching.")
+                logger.warning(f"ByteTracker engine step failed: {e}. Falling back to internal IoU matching.")
 
         # Fallback IoU tracker
+        if self.ultralytics_tracker is None:
+            logger.warning("Ultralytics tracker unavailable. Using internal IoU tracker.")
         return self._fallback_iou_update(detections, frame_idx)
 
     def _fallback_iou_update(

@@ -73,15 +73,17 @@ class ChallanService:
         evidence_image_path: Optional[str] = None,
     ) -> Dict[str, Any]:
         penalty = cls.get_penalty_info(violation_type)
-        challan_no = f"KA-BTP-{timestamp.strftime('%Y%m')}-{violation_id:05d}"
+        challan_no = f"PROTO-{timestamp.strftime('%Y%m')}-{violation_id:05d}"
         due_date = timestamp + datetime.timedelta(days=30)
 
         challan_data = {
+            "notice_type": "Prototype violation notice",
+            "notice_number": challan_no,
             "challan_number": challan_no,
             "violation_id": violation_id,
             "event_id": event_id,
-            "issuing_authority": "Bengaluru Traffic Police (BTP) - Automated AI Enforcement Unit",
-            "jurisdiction": "Karnataka State Police Department",
+            "issuing_authority": "Prototype AI Traffic Violation Detection System (Research Project)",
+            "jurisdiction": "Academic Research Prototype",
             "vehicle_plate": plate_number or "UNIDENTIFIED",
             "violation_type": violation_type,
             "mv_act_section": penalty["section"],
@@ -93,11 +95,11 @@ class ChallanService:
             "location": location,
             "confidence_score": f"{confidence:.1%}",
             "evidence_image_url": evidence_image_path,
-            "payment_status": "PENDING",
-            "payment_gateway_url": f"https://echallan.parivahan.gov.in/payment?ref={challan_no}",
+            "status": "PROTOTYPE_NOTICE",
             "verification_hash": uuid.uuid4().hex[:16].upper(),
         }
         return challan_data
+
 
 
 challan_service = ChallanService()

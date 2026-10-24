@@ -37,65 +37,91 @@ class HelmetViolationRule(BaseViolationRule):
         if frame is None or not groups:
             return violations
 
+        has_custom = bool(
+            detector
+            and (
+                getattr(detector, "has_custom_model", False)
+                or getattr(detector, "has_custom_helmet_model", False)
+            )
+        )
+        detections = context.get("detections", [])
+        frame_idx = context.get("frame_idx", 0)
+        fps = context.get("fps", 25.0) or 25.0
+        current_time = frame_idx / fps
+
+        # Separate custom model detections if available
+        helmet_centres = []
+        no_helmet_centres = []
+        if has_custom and detections:
+            for d in detections:
+                cname = d.class_name.lower().replace(" ", "_")
+                if cname in ["no_helmet", "without_helmet", "nohelmet"]:
+                    no_helmet_centres.append((d.center[0], d.center[1], d.confidence))
+                elif cname in ["helmet", "with_helmet", "withhelmet"]:
+                    helmet_centres.append((d.center[0], d.center[1], d.confidence))
+
         for group in groups:
             bike_id = group.motorcycle.track_id
             for rider in group.riders:
-                rx1, ry1, rx2, ry2 = [int(v) for v in rider.bbox]
-                h, w = frame.shape[:2]
-                rx1, ry1 = max(0, rx1), max(0, ry1)
-                rx2, ry2 = min(w, rx2), min(h, ry2)
-
+                rx1, ry1, rx2, ry2 = [float(v) for v in rider.bbox]
                 rider_h = ry2 - ry1
                 if rider_h < 30:
                     continue
 
-                # Head crop: top 25% of rider bounding box
-                head_y2 = min(ry2, int(ry1 + 0.28 * rider_h))
-                head_crop = frame[ry1:head_y2, rx1:rx2]
-
                 is_no_helmet = False
                 conf = 0.85
+                mode = "CUSTOM_MODEL" if has_custom else "BASELINE_HEURISTIC"
 
-                if detector and getattr(detector, "has_custom_helmet_model", False):
-                    # Inference with custom helmet model
-                    try:
-                        res = detector.helmet_model(head_crop, verbose=False)
-                        if res and len(res[0].boxes) > 0:
-                            for b in res[0].boxes:
-                                cls_name = detector.helmet_model.names.get(int(b.cls[0].item()), "")
-                                if "no_helmet" in cls_name.lower():
-                                    is_no_helmet = True
-                                    conf = float(b.conf[0].item())
-                                    break
-                    except Exception as e:
-                        logger.debug(f"Helmet model error: {e}")
+                if has_custom:
+                    # Top 35% of rider's bounding box
+                    head_y_max = ry1 + 0.35 * rider_h
+
+                    # Check for no_helmet box centre inside top 35%
+                    matching_no_helmet = [
+                        c for c in no_helmet_centres
+                        if rx1 <= c[0] <= rx2 and ry1 <= c[1] <= head_y_max
+                    ]
+                    # Check for helmet box centre inside top 35%
+                    matching_helmet = [
+                        c for c in helmet_centres
+                        if rx1 <= c[0] <= rx2 and ry1 <= c[1] <= head_y_max
+                    ]
+
+                    if matching_no_helmet:
+                        is_no_helmet = True
+                        conf = max(c[2] for c in matching_no_helmet)
+                    elif matching_helmet:
+                        is_no_helmet = False  # helmet box there -> not a violation
+                    else:
+                        is_no_helmet = False  # no box -> unknown (not a violation)
                 else:
-                    # Prototype / Research Baseline Mode:
-                    # In demo mode without custom weights, inspect head crop edge density & color saturation
-                    # Human hair/skin generally exhibits high texture/gradient variance compared to smooth helmets
+                    # Baseline heuristic when NO custom model exists
+                    head_y2 = min(int(ry2), int(ry1 + 0.28 * rider_h))
+                    h_f, w_f = frame.shape[:2]
+                    head_crop = frame[max(0, int(ry1)):min(h_f, head_y2), max(0, int(rx1)):min(w_f, int(rx2))]
                     if head_crop.size > 0:
                         gray_head = cv2.cvtColor(head_crop, cv2.COLOR_BGR2GRAY)
                         edges = cv2.Canny(gray_head, 80, 180)
                         edge_ratio = np.count_nonzero(edges) / max(1, edges.size)
-                        # Higher edge variance and dark texture correlates with unhelmeted hair in baseline scenes
                         if edge_ratio > 0.08:
                             is_no_helmet = True
                             conf = min(0.92, 0.70 + float(edge_ratio * 2.0))
 
-                # Temporal confirmation check
-                if self.record_frame_evidence(rider.track_id, is_no_helmet):
+                # Temporal confirmation check using video time
+                if self.record_frame_evidence(rider.track_id, is_no_helmet, current_time=current_time):
                     violations.append({
                         "violation_type": "NO_HELMET",
-                        "track_id": bike_id,  # Associate violation with vehicle
+                        "track_id": bike_id,
                         "rider_track_id": rider.track_id,
                         "confidence": round(conf, 3),
-                        "timestamp": time.time(),
+                        "timestamp": current_time,
                         "evidence_required": True,
                         "extra": {
                             "bike_track_id": bike_id,
                             "rider_count": group.rider_count,
-                            "mode": "CUSTOM_MODEL" if (detector and getattr(detector, "has_custom_helmet_model", False)) else "RESEARCH_PROTOTYPE_BASELINE",
+                            "mode": mode,
                         },
                     })
 
         return violations
+
