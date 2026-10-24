@@ -852,10 +852,10 @@ def render_live_monitoring_page():
                 </div>
                 """, unsafe_allow_html=True)
 
-                evidence_placeholder.image(cv2.cvtColor(annotated_frame, cv2.COLOR_BGR2RGB), caption=f"Capture: {v_type} (ID: {last_viol_info.get('track_id')})", use_container_width=True)
+                evidence_placeholder.image(cv2.cvtColor(annotated_frame, cv2.COLOR_BGR2RGB), caption=f"Capture: {v_type} (ID: {last_viol_info.get('track_id')})", width="stretch")
 
             rgb_frame = cv2.cvtColor(annotated_frame, cv2.COLOR_BGR2RGB)
-            frame_placeholder.image(rgb_frame, channels="RGB", use_container_width=True)
+            frame_placeholder.image(rgb_frame, channels="RGB", width="stretch")
 
             status_bar.markdown(
                 f"**Frame:** `{frame_idx}` | **Live FPS:** `{pipeline.current_fps:.1f}` | "
