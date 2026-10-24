@@ -18,7 +18,7 @@ class PlateRecognizer:
         self,
         engine_type: str = "easyocr",
         plate_regex: str = r"^[A-Z]{2}[0-9]{1,2}[A-Z]{0,3}[0-9]{4}$",
-        min_confidence: float = 0.35,
+        min_confidence: float = 0.20,
     ):
         self.plate_regex = re.compile(plate_regex)
         self.min_confidence = min_confidence
@@ -72,6 +72,8 @@ class PlateRecognizer:
         [State 2 Letters][District 1-2 Digits][Series 0-3 Letters][Number 4 Digits]
         """
         cleaned = re.sub(r"[^A-Za-z0-9]", "", raw_text).upper()
+        if cleaned.startswith("IND") and len(cleaned) > 10:
+            cleaned = cleaned[3:]
         if len(cleaned) < 8 or len(cleaned) > 11:
             return None
 
@@ -102,6 +104,36 @@ class PlateRecognizer:
 
         return None
 
+    def _extract_from_ocr_results(self, results: List[Any]) -> Optional[Tuple[str, float]]:
+        if not results:
+            return None
+
+        # 1. Check single box candidates first (if whole plate captured in one box)
+        for bbox, text, conf in results:
+            if conf >= self.min_confidence:
+                normalized = self.normalize_indian_plate(text)
+                if normalized:
+                    return (normalized, float(conf))
+
+        # 2. Check multi-box combination (e.g. Indian 2-row motorcycle plates "KL 09" on top, "AQ 3439" on bottom)
+        valid_items = [r for r in results if r[2] >= max(0.15, self.min_confidence * 0.7)]
+        if len(valid_items) >= 2:
+            # Sort boxes primarily by vertical Y coordinate, secondarily by horizontal X coordinate
+            sorted_boxes = sorted(
+                valid_items,
+                key=lambda r: (
+                    round((r[0][0][1] + r[0][2][1]) / 40.0),
+                    (r[0][0][0] + r[0][2][0]) / 2.0,
+                ),
+            )
+            joined_text = " ".join([r[1] for r in sorted_boxes])
+            avg_conf = sum([r[2] for r in sorted_boxes]) / len(sorted_boxes)
+            normalized = self.normalize_indian_plate(joined_text)
+            if normalized and avg_conf >= max(0.20, self.min_confidence * 0.8):
+                return (normalized, float(avg_conf))
+
+        return None
+
     def read_plate(self, crop: np.ndarray) -> Optional[Tuple[str, float]]:
         """Runs OCR on cropped plate/bumper region."""
         self._ensure_ocr()
@@ -109,24 +141,18 @@ class PlateRecognizer:
             return None
 
         try:
+            # 1. Try on raw crop first (retains subtle contrast gradients)
+            raw_results = self.ocr_reader.readtext(crop)
+            candidate = self._extract_from_ocr_results(raw_results)
+            if candidate:
+                return candidate
+
+            # 2. Try on preprocessed crop (grayscale + bilateral + adaptive thresh)
             preprocessed = self.preprocess_plate(crop)
             results = self.ocr_reader.readtext(preprocessed)
-
-            for bbox, text, conf in results:
-                if conf < self.min_confidence:
-                    continue
-                normalized = self.normalize_indian_plate(text)
-                if normalized:
-                    return (normalized, float(conf))
-
-            # If preprocessed failed, try raw crop as fallback
-            raw_results = self.ocr_reader.readtext(crop)
-            for bbox, text, conf in raw_results:
-                if conf < self.min_confidence:
-                    continue
-                normalized = self.normalize_indian_plate(text)
-                if normalized:
-                    return (normalized, float(conf))
+            candidate = self._extract_from_ocr_results(results)
+            if candidate:
+                return candidate
         except Exception as e:
             logger.debug(f"OCR inference step error: {e}")
 

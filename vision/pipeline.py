@@ -1,5 +1,6 @@
 import os
 import time
+import json
 import uuid
 import logging
 import datetime
@@ -136,41 +137,52 @@ class TrafficVisionPipeline:
         }
         confirmed_violations = self.rule_engine.evaluate_frame(context)
 
-        # F. OCR ONLY for vehicles with a confirmed violation (with 10% padding crop if custom model)
-        for viol in confirmed_violations:
-            vid = viol.get("track_id")
-            if vid is not None:
-                if getattr(self.detector, "has_custom_model", False) and vid in vehicle_plate_boxes:
-                    px1, py1, px2, py2 = vehicle_plate_boxes[vid]
-                    pw = px2 - px1
-                    ph = py2 - py1
-                    h_f, w_f = frame.shape[:2]
-                    # Crop with 10% padding
-                    crop_x1 = max(0, int(round(px1 - 0.10 * pw)))
-                    crop_y1 = max(0, int(round(py1 - 0.10 * ph)))
-                    crop_x2 = min(w_f, int(round(px2 + 0.10 * pw)))
-                    crop_y2 = min(h_f, int(round(py2 + 0.10 * ph)))
-                    crop = frame[crop_y1:crop_y2, crop_x1:crop_x2]
-                    if crop.size > 0:
-                        ocr_res = self.plate_recognizer.read_plate(crop)
-                        if ocr_res:
-                            text, conf = ocr_res
-                            self.plate_recognizer.update_track_plate(vid, text, conf)
-                else:
-                    # Baseline bumper crop fallback if no custom model
-                    v_obj = next((v for v in tracked_vehicles if v.track_id == vid), None)
-                    if v_obj:
-                        vx1, vy1, vx2, vy2 = [int(p) for p in v_obj.bbox]
-                        h_f, w_f = frame.shape[:2]
-                        vh = vy2 - vy1
-                        crop = frame[max(0, int(vy1 + 0.6 * vh)):min(h_f, vy2), max(0, vx1):min(w_f, vx2)]
-                        if crop.size > 0:
-                            ocr_res = self.plate_recognizer.read_plate(crop)
-                            if ocr_res:
-                                text, conf = ocr_res
-                                self.plate_recognizer.update_track_plate(vid, text, conf)
+        # F. OCR Automatic License Plate Recognition
+        # Evaluate OCR on vehicles with confirmed violations, plus periodic tracking reads (every 3 frames)
+        # for vehicles that haven't reached plate consensus yet.
+        viol_vids = {viol.get("track_id") for viol in confirmed_violations if viol.get("track_id")}
 
-            # Persist violation, generate physical evidence, and dispatch alert
+        target_vehicles = []
+        for v in tracked_vehicles:
+            vid = v.track_id
+            current_plate = self.plate_recognizer.get_track_plate(vid)
+            # If vehicle triggered a violation OR has no plate and periodic check matches
+            if vid in viol_vids or (current_plate is None and frame_idx % 3 == 0):
+                vw = v.bbox[2] - v.bbox[0]
+                vh = v.bbox[3] - v.bbox[1]
+                if vw >= 50 and vh >= 50:
+                    target_vehicles.append(v)
+
+        h_f, w_f = frame.shape[:2]
+        for v in target_vehicles:
+            vid = v.track_id
+            crop = None
+            if getattr(self.detector, "has_custom_model", False) and vid in vehicle_plate_boxes:
+                px1, py1, px2, py2 = vehicle_plate_boxes[vid]
+                pw = px2 - px1
+                ph = py2 - py1
+                crop_x1 = max(0, int(round(px1 - 0.10 * pw)))
+                crop_y1 = max(0, int(round(py1 - 0.10 * ph)))
+                crop_x2 = min(w_f, int(round(px2 + 0.10 * pw)))
+                crop_y2 = min(h_f, int(round(py2 + 0.10 * ph)))
+                crop = frame[crop_y1:crop_y2, crop_x1:crop_x2]
+            else:
+                vx1, vy1, vx2, vy2 = [int(p) for p in v.bbox]
+                vh = vy2 - vy1
+                # Motorcycles carry front plates under the headlight (y1 + 0.45*vh to vy2)
+                y_offset = 0.45 if v.class_name.lower() == "motorcycle" else 0.60
+                crop = frame[max(0, int(vy1 + y_offset * vh)):min(h_f, vy2), max(0, vx1):min(w_f, vx2)]
+
+            if crop is not None and crop.size > 0:
+                ocr_res = self.plate_recognizer.read_plate(crop)
+                if ocr_res:
+                    text, conf = ocr_res
+                    best_plate = self.plate_recognizer.update_track_plate(vid, text, conf)
+                    if best_plate:
+                        self._sync_plate_to_violations(vid, best_plate, conf)
+
+        # Persist newly confirmed violations, generate physical evidence, and dispatch alert
+        for viol in confirmed_violations:
             self._handle_confirmed_violation(viol, frame, frame_idx, fps)
 
 
@@ -293,6 +305,75 @@ class TrafficVisionPipeline:
             location=self.location,
             extra=viol.get("extra"),
         )
+
+    def _sync_plate_to_violations(
+        self,
+        track_id: int,
+        plate_number: str,
+        confidence: float,
+    ):
+        """
+        Retroactively updates previously logged violation and evidence records
+        once OCR resolves a vehicle's license plate.
+        """
+        if not plate_number or not track_id:
+            return
+
+        try:
+            db = SessionLocal()
+            try:
+                # 1. Ensure Vehicle registry entry exists
+                vehicle_rec = db.query(Vehicle).filter(Vehicle.plate_number == plate_number).first()
+                if not vehicle_rec:
+                    vehicle_rec = Vehicle(
+                        plate_number=plate_number,
+                        total_violations=0,
+                    )
+                    db.add(vehicle_rec)
+                    db.flush()
+
+                # 2. Find any violations for this track_id missing a plate or marked UNIDENTIFIED
+                unresolved_viols = (
+                    db.query(Violation)
+                    .filter(Violation.track_id == track_id)
+                    .filter((Violation.plate_number == None) | (Violation.plate_number == "UNIDENTIFIED"))
+                    .all()
+                )
+
+                for viol in unresolved_viols:
+                    viol.plate_number = plate_number
+                    viol.vehicle_id = vehicle_rec.id
+                    vehicle_rec.total_violations += 1
+
+                    # Update associated alert message
+                    alert = db.query(Alert).filter(Alert.violation_id == viol.id).first()
+                    if alert:
+                        alert.message = f"Violation {viol.violation_type} detected at {viol.location} for vehicle {plate_number}"
+
+                    # Update metadata JSON on disk if evidence exists
+                    ev = db.query(Evidence).filter(Evidence.violation_id == viol.id).first()
+                    if ev and ev.metadata_json and os.path.exists(ev.metadata_json):
+                        try:
+                            with open(ev.metadata_json, "r", encoding="utf-8") as f_meta:
+                                meta_data = json.load(f_meta)
+                            meta_data["plate_number"] = plate_number
+                            with open(ev.metadata_json, "w", encoding="utf-8") as f_meta:
+                                json.dump(meta_data, f_meta, indent=2)
+                        except Exception as meta_err:
+                            logger.debug(f"Could not update evidence metadata JSON: {meta_err}")
+
+                db.commit()
+                if unresolved_viols:
+                    logger.info(
+                        f"Retroactively linked plate {plate_number} to {len(unresolved_viols)} violation(s) for track ID {track_id}"
+                    )
+            except Exception as e:
+                db.rollback()
+                logger.error(f"Error retroactively syncing plate {plate_number} to track {track_id}: {e}")
+            finally:
+                db.close()
+        except Exception as e:
+            logger.error(f"Database connection error in _sync_plate_to_violations: {e}")
 
     def _render_annotations(
         self,
