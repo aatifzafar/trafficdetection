@@ -50,10 +50,12 @@ class ByteTrackTracker(BaseTracker):
             from ultralytics.trackers.byte_tracker import BYTETracker
 
             args = SimpleNamespace(
-                track_thresh=track_thresh,
+                track_high_thresh=track_thresh,
+                track_low_thresh=max(0.05, track_thresh * 0.4),
+                new_track_thresh=min(0.9, track_thresh + 0.05),
                 track_buffer=track_buffer,
                 match_thresh=match_thresh,
-                mot20=False,
+                fuse_score=False,
                 fps=frame_rate,
             )
             self.ultralytics_tracker = BYTETracker(args)
@@ -73,52 +75,52 @@ class ByteTrackTracker(BaseTracker):
         # If Ultralytics tracker is available, convert detections
         if self.ultralytics_tracker is not None:
             try:
-                # Prepare detection format: [x1, y1, x2, y2, score, class_id]
-                det_array = []
-                det_map = {}
-                for idx, d in enumerate(detections):
-                    det_array.append([d.x1, d.y1, d.x2, d.y2, d.confidence, d.class_id])
-                    det_map[idx] = d
-
                 import torch
-                det_tensor = torch.tensor(det_array, dtype=torch.float32)
+                from ultralytics.engine.results import Boxes
 
-                tracks = self.ultralytics_tracker.update(det_tensor, frame)
+                det_array = []
+                for d in detections:
+                    det_array.append([d.x1, d.y1, d.x2, d.y2, d.confidence, float(d.class_id)])
+
+                h, w = frame.shape[:2] if frame is not None else (720, 1280)
+                det_tensor = torch.tensor(det_array, dtype=torch.float32)
+                boxes = Boxes(det_tensor, orig_shape=(h, w))
+
+                tracks = self.ultralytics_tracker.update(boxes.cpu().numpy(), img=frame)
 
                 active_tracks: List[TrackedObject] = []
-                for t in tracks:
-                    tlwh = t.tlwh
-                    tid = int(t.track_id)
-                    x1 = float(tlwh[0])
-                    y1 = float(tlwh[1])
-                    x2 = float(tlwh[0] + tlwh[2])
-                    y2 = float(tlwh[1] + tlwh[3])
-                    score = float(t.score)
-                    cls_id = int(t.cls) if hasattr(t, "cls") else 0
+                if tracks is not None and len(tracks) > 0:
+                    for row in tracks:
+                        x1, y1, x2, y2, tid, score, cls_id, det_idx = row[:8]
+                        tid = int(tid)
+                        score = float(score)
+                        cls_id = int(cls_id)
+                        det_idx = int(det_idx)
 
-                    # Find matching detection to get class name
-                    cls_name = "vehicle"
-                    for d in detections:
-                        if compute_iou([x1, y1, x2, y2], d.bbox) > 0.4:
-                            cls_name = d.class_name
-                            cls_id = d.class_id
-                            break
+                        cls_name = "vehicle"
+                        if 0 <= det_idx < len(detections):
+                            cls_name = detections[det_idx].class_name
+                        else:
+                            for d in detections:
+                                if compute_iou([x1, y1, x2, y2], d.bbox) > 0.4:
+                                    cls_name = d.class_name
+                                    break
 
-                    if tid in self.tracked_objects:
-                        obj = self.tracked_objects[tid]
-                        obj.update([x1, y1, x2, y2], score, frame_idx)
-                    else:
-                        obj = TrackedObject(
-                            track_id=tid,
-                            class_name=cls_name,
-                            class_id=cls_id,
-                            bbox=[x1, y1, x2, y2],
-                            confidence=score,
-                            frame_idx=frame_idx,
-                        )
-                        self.tracked_objects[tid] = obj
+                        if tid in self.tracked_objects:
+                            obj = self.tracked_objects[tid]
+                            obj.update([float(x1), float(y1), float(x2), float(y2)], score, frame_idx)
+                        else:
+                            obj = TrackedObject(
+                                track_id=tid,
+                                class_name=cls_name,
+                                class_id=cls_id,
+                                bbox=[float(x1), float(y1), float(x2), float(y2)],
+                                confidence=score,
+                                frame_idx=frame_idx,
+                            )
+                            self.tracked_objects[tid] = obj
 
-                    active_tracks.append(obj)
+                        active_tracks.append(obj)
 
                 return active_tracks
             except Exception as e:

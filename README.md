@@ -7,7 +7,7 @@
 [![Python 3.11+](https://img.shields.io/badge/Python-3.11%2B-blue.svg)](https://www.python.org/)
 [![FastAPI](https://img.shields.io/badge/Backend-FastAPI-009688.svg)](https://fastapi.tiangolo.com/)
 [![Streamlit](https://img.shields.io/badge/Dashboard-Streamlit-FF4B4B.svg)](https://streamlit.io/)
-[![Ultralytics YOLO](https://img.shields.io/badge/Vision-YOLOv8-blueviolet.svg)](https://ultralytics.com/)
+[![Ultralytics YOLO](https://img.shields.io/badge/Vision-YOLO26-blueviolet.svg)](https://ultralytics.com/)
 [![ByteTrack](https://img.shields.io/badge/Tracking-ByteTrack-orange.svg)](https://github.com/ifzhang/ByteTrack)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
 
@@ -17,7 +17,7 @@
 
 Urban traffic congestion, dangerous two-wheeler practices, signal jumping, and lane violations cause thousands of preventable road accidents daily in metropolitan cities across India (such as Bengaluru, Delhi, and Mumbai). Traditional manual enforcement by traffic police officers is physically constrained, susceptible to blind spots, and incapable of monitoring 24/7 high-density multi-lane junctions.
 
-This project delivers a **production-structured, real-time AI computer vision system** designed to automate traffic violation monitoring from CCTV camera feeds, RTSP streams, and recorded dashcam footage. It integrates multi-object detection, persistent trajectory tracking, spatial rider-to-motorcycle association, Indian High-Security Registration Plate (HSRP) recognition, temporal violation confirmation, forensic evidence archiving, and an interactive traffic command center dashboard.
+This project delivers a **production-structured, real-time AI computer vision system** designed to automate traffic violation monitoring from CCTV camera feeds, RTSP streams, and recorded dashcam footage. It integrates multi-object detection powered by the real-time NMS-free **YOLO26** architecture, persistent ByteTrack trajectory tracking, spatial rider-to-motorcycle association, Indian High-Security Registration Plate (HSRP) recognition, temporal violation confirmation, forensic evidence archiving, and an interactive traffic command center dashboard.
 
 ---
 
@@ -25,9 +25,9 @@ This project delivers a **production-structured, real-time AI computer vision sy
 
 ### Primary Violation Rules
 1. **Riding Without Helmet (`NO_HELMET`):**
-   - Head-crop analysis of rider and pillion passengers.
-   - Evaluated via custom classifier or spatial baseline texture analysis.
-   - Associated directly with motorcycle track entity.
+   - Head-crop spatial analysis of rider and pillion passengers.
+   - Evaluated via custom YOLO26 multi-class detector (`helmet` vs `no_helmet` box centroid inside top 35% of rider bbox) or spatial baseline edge heuristic (`BASELINE_HEURISTIC`).
+   - Associated directly with tracked motorcycle entity.
 2. **Triple Riding (`TRIPLE_RIDING`):**
    - Spatial association clusters multiple riders atop a single motorcycle.
    - Flags incidents when `rider_count > 2`.
@@ -45,9 +45,10 @@ This project delivers a **production-structured, real-time AI computer vision sy
 
 ### Key Capabilities
 - **Temporal Confirmation:** Multi-frame confirmation ($N$ out of $M$ sliding frames) prevents single-frame false alarms.
-- **Cooldown Throttling:** 10-second cooldown suppresses duplicate penalty generation for the same vehicle.
+- **Video Time Cooldown:** Video-synchronized cooldown ($frame\_idx / fps$) throttles duplicate penalty generation for the same vehicle track.
 - **Indian HSRP ALPR:** Regex-based validation (`^[A-Z]{2}[0-9]{1,2}[A-Z]{0,3}[0-9]{4}$`), character ambiguity resolution (`0/O`, `8/B`, `1/I`), and multi-frame consensus voting.
 - **Traceable Forensic Evidence:** Generates an incident folder with high-res snapshot (`violation_frame.jpg`), pre/post video clip (`evidence.mp4`), and audit payload (`metadata.json`).
+- **Prototype Violation Notices:** Automated prototype violation notice generation with incident citations and penalty amounts.
 
 ---
 
@@ -62,19 +63,19 @@ flowchart TD
     end
 
     subgraph VisionPipeline["Core Computer Vision Pipeline"]
-        INGEST --> DET["YOLOv8 Object Detection\n(Vehicles, Persons, Phones, Lights)"]
-        DET --> TRK["ByteTrack / DeepSORT\nMulti-Object Tracking"]
+        INGEST --> DET["YOLO26 Detection Engine\n(NMS-Free Real-Time Detection)"]
+        DET --> TRK["ByteTrack Multi-Object Tracking\n(Ultralytics Engine + IoU Matcher)"]
         TRK --> ASSOC["Rider-Motorcycle\nSpatial Associator"]
-        TRK --> OCR["ALPR Module\n(Crop -> Preprocess -> EasyOCR -> Multi-Frame Voting)"]
+        TRK --> OCR["Targeted ALPR Module\n(10% Padded Crop -> EasyOCR -> Multi-Frame Voting)"]
         
         ASSOC & TRK & OCR --> RULES["Traffic Violation Rule Engine"]
-        RULES --> TC["Temporal Confirmation\n(N/M Frames + Cooldown)"]
+        RULES --> TC["Temporal Confirmation & Video Cooldown\n(N/M Frames + Video-Time Window)"]
     end
 
     subgraph StorageEvidence["Evidence & Persistence Layer"]
         TC --> EVID["Evidence Recorder\n(Snapshot + Pre/Post Clip + Metadata)"]
         EVID --> DB[("Database\n(SQLite / PostgreSQL)")]
-        TC --> ALERTS["Alert Service\n(Console, Dashboard Queue, SMS/Email Mock)"]
+        TC --> ALERTS["Alert Service\n(Console, Dashboard Queue, Prototype Notice Generator)"]
     end
 
     subgraph Presentation["Command Center & API Layer"]
@@ -90,9 +91,9 @@ flowchart TD
 
 | Domain | Technology / Library | Role |
 | :--- | :--- | :--- |
-| **Language** | Python 3.11+ / 3.13 | Core runtime |
-| **Deep Learning** | PyTorch & Ultralytics YOLOv8 / YOLO11 | Real-time object detection |
-| **Multi-Object Tracking** | ByteTrack / DeepSORT | Persistent vehicle & rider tracking IDs |
+| **Language** | Python 3.11+ / 3.14 | Core runtime |
+| **Deep Learning** | PyTorch & Ultralytics YOLO26 (`yolo26n.pt`) | Real-time NMS-free object detection |
+| **Multi-Object Tracking** | ByteTrack (Ultralytics engine) | Persistent vehicle & rider tracking IDs |
 | **ALPR & OCR** | EasyOCR, OpenCV, Regex | Indian plate recognition & multi-frame voting |
 | **Backend API** | FastAPI, Uvicorn, Pydantic v2 | Async REST services & video ingestion |
 | **Database & ORM** | SQLAlchemy ORM, SQLite / PostgreSQL | Structured persistence & event history |
@@ -106,7 +107,7 @@ flowchart TD
 ### 1. Clone & Navigate to Repository
 ```bash
 git clone <repository_url>
-cd "Design Project (Final)"
+cd trafficdetection
 ```
 
 ### 2. Create Virtual Environment
@@ -144,7 +145,8 @@ app:
   device: "auto" # "cuda", "cpu", or "auto"
 
 detection:
-  model_traffic: "models/yolov8n.pt"
+  model_traffic: "models/yolo26n.pt"
+  model_custom: "models/traffic_custom.pt"
   confidence: 0.35
   iou: 0.45
 
@@ -214,20 +216,23 @@ docker-compose up --build
 
 ---
 
-## 9. Evaluation & Benchmarking
+### Running Traffic Pipeline on Video (CLI)
+Run the end-to-end pipeline with stop-line and traffic signal state configuration:
+```bash
+python scripts/run_video.py --video data/videos/22.mp4 --signal AUTO
+```
+Outputs the annotated video, saved violation screenshots, and a terminal summary report.
 
 ### Benchmarking Hardware Inference Performance
-Profiles average FPS, latency (mean, median, P95), and hardware utilization:
+Profiles average FPS, latency (mean, median, P95), and hardware utilization on YOLO26:
 ```bash
-python scripts/benchmark.py --frames 100 --size 640
+python scripts/benchmark.py --frames 50 --size 640
 ```
-Outputs are recorded to `data/benchmark_results.json`.
+Real benchmark results are saved to `data/benchmark_results.json` (Local CPU: ~23.9 FPS, ~39.1 ms latency).
 
-### Evaluating Model Accuracy on Annotated Datasets
-```bash
-python scripts/evaluate.py --dataset path/to/dataset.yaml
-```
-*Note: If no ground-truth dataset is provided, the script reports `"Evaluation not performed"` rather than generating fabricated precision/recall metrics.*
+### Model Training & Evaluation Results
+Detailed training methodology, dataset distribution tables, Colab setup, and model evaluations are documented in:
+👉 [docs/MODEL_RESULTS.md](docs/MODEL_RESULTS.md)
 
 ---
 

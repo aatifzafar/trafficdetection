@@ -21,32 +21,36 @@ The system automates the detection and reporting of traffic safety and traffic o
 ---
 
 ## 2. Technical Stack
-- **Language:** Python 3.11+ (Active Environment: Python 3.13)
-- **Computer Vision & Deep Learning:** Ultralytics YOLOv8 / YOLO11, PyTorch, OpenCV
-- **Multi-Object Tracking (MOT):** ByteTrack (Primary) & DeepSORT (Alternative Abstraction)
-- **OCR Engine:** EasyOCR / PaddleOCR / PyTesseract with regex-based Indian High-Security Registration Plate (HSRP) format validation and multi-frame voting
+- **Language:** Python 3.11+ (Active Environment: Python 3.14)
+- **Computer Vision & Deep Learning:** Ultralytics YOLO26 (`yolo26n.pt`), PyTorch, OpenCV
+- **Multi-Object Tracking (MOT):** ByteTrack (Ultralytics native engine with IoU fallback)
+- **OCR Engine:** EasyOCR / PyTesseract with regex-based Indian High-Security Registration Plate (HSRP) format validation and multi-frame voting
 - **Backend API:** FastAPI with async ASGI handlers and CORS
 - **Database & ORM:** SQLAlchemy ORM with SQLite (Local prototype/Zero-setup) and PostgreSQL/TimescaleDB support
 - **Monitoring Dashboard:** Streamlit with Plotly visual analytics, live annotated video feed, filterable violation triage, and vehicle search
-- **Alert System:** Modular AlertService dispatching to Dashboard (live queue), Console logger, with extensible SMS/Email notification hooks
+- **Alert System:** Modular AlertService dispatching to Dashboard (live queue), Console logger, and Prototype Violation Notice Generator
 
 ---
 
 ## 3. Model Weight & Dataset Reality Assessment
 
 ### Currently Available Off-The-Shelf:
-- **Pretrained YOLOv8 / YOLO11 Models (`yolov8n.pt`, `yolov8s.pt`):**
+- **Pretrained YOLO26 Models (`yolo26n.pt`):**
+  - Architecture: NMS-free, end-to-end real-time object detection (Ultralytics >= 8.4.0).
   - Classes available in COCO: `person`, `bicycle`, `car`, `motorcycle`, `bus`, `truck`, `traffic light`, `cell phone`.
   - Capable directly of: Vehicle detection, Rider detection, Traffic light detection, Phone detection (if visible), Trajectory tracking, Red light jump rule, Wrong-way rule, Triple riding (spatial rider-to-bike association).
 
-### Custom Weights Required for Production Grade:
-- `helmet_model.pt`: Binary helmet / no-helmet detector, head-crop classifier.
-- `plate_model.pt`: License plate localization model (Indian HSRP plates).
-- `seatbelt_model.pt`: Car cabin windshield crop & seatbelt wear classifier.
+### Custom Weights & Training (Merged YOLO Dataset):
+- `models/traffic_custom.pt`: Unified custom model detecting 3 target classes:
+  - Class 0: `helmet`
+  - Class 1: `no_helmet`
+  - Class 2: `number_plate`
+- Built from 4,016 merged and deduplicated images across 6 source archives (`datasets/merged/`).
+- Trained on Google Colab T4 GPU via `notebooks/train_colab.ipynb`.
 
-### Prototype / Demo Mode Strategy:
+### Prototype / Fallback Strategy:
 - **No Fake AI:** When custom trained weights are not in the `models/` directory, the system automatically uses a robust fallback pipeline:
-  - Motorcycle rider head-crop analysis + YOLO person bounding boxes.
+  - Motorcycle rider head-crop analysis + YOLO person bounding boxes (labeled `BASELINE_HEURISTIC`).
   - License plate detector uses candidate bumper contours + OCR fallback, or custom lightweight plate weights when supplied.
   - Clear UI indicators showing whether detections originate from "COCO Baseline + Spatial Heuristics" vs "Dedicated Custom Model".
   - If a model is missing (e.g. seatbelt classifier), the system logs *"Seatbelt detection model not configured"* instead of fabricating outputs.
@@ -55,49 +59,33 @@ The system automates the detection and reporting of traffic safety and traffic o
 
 ## 4. Phase-by-Phase Roadmap & Current Status
 
-### Phase 1: Foundation, Pipeline Core & Live Dashboard (COMPLETED - 100%)
-- [x] Directory layout and clean modular architecture.
-- [x] Configuration management (`config.yaml`, `.env.example`).
-- [x] Database schema (SQLAlchemy): `users`, `vehicles`, `detections`, `tracks`, `violations`, `evidence`, `alerts`, `camera_sources`.
-- [x] ByteTrack / Tracker abstraction with Ultralytics BYTETracker engine.
-- [x] YOLO Detector wrapper with PyTorch CPU/CUDA auto-detection.
-- [x] Video upload & processing pipeline.
-- [x] FastAPI backend endpoints (`/health`, `/api/cameras`, `/api/violations`, `/api/analytics`, `/api/upload-video`).
-- [x] Interactive Traffic Monitoring Dashboard with KPI cards, live feed player, and violation alerts.
+### Phase 0: YOLO26 Upgrade (COMPLETED)
+- [x] Upgraded to `ultralytics>=8.4.0` supporting YOLO26.
+- [x] Integrated `yolo26n.pt` into `models/` and updated `config.yaml`.
+- [x] Verified NMS-free box parsing in `detector.py` and validated pipeline execution.
 
-### Phase 2: Helmet & Triple Riding Engine with Rider-Bike Association (COMPLETED - 100%)
-- [x] Spatial overlap and IoU-based rider-motorcycle association (`RiderMotorcycleAssociator`).
-- [x] Pillion count calculation (`riders > 2` triggers `TRIPLE_RIDING`).
-- [x] Rider head region extraction and helmet classification rule with fallback edge variance analysis.
-- [x] Temporal confirmation window ($N$ out of $M$ frames) and violation cooldown ($10-12s$) to eliminate double counting.
-- [x] Evidence generator: Snapshot framing + pre/post event video buffer extraction (`EvidenceRecorder`).
+### Phase 1: Merged YOLO Dataset Construction (COMPLETED)
+- [x] Consolidated 6 raw dataset archives into a unified 3-class YOLO dataset (`0: helmet`, `1: no_helmet`, `2: number_plate`).
+- [x] Image byte deduplication (1,440 duplicate images filtered).
+- [x] 80/20 train/validation split (3,213 train / 803 val images) preserving video sequence groups.
+- [x] Generated `datasets/merged/data.yaml` and 12-sample annotated preview `datasets/merged/preview.jpg`.
 
-### Phase 3: Number Plate Detection (ALPR) & Multi-Frame OCR Voting (COMPLETED - 100%)
-- [x] License plate localization on vehicle bumper crops.
-- [x] Image preprocessing (bilateral filter, adaptive Gaussian thresholding, deskewing).
-- [x] Indian High-Security Registration Plate (HSRP) regex validation (`^[A-Z]{2}[0-9]{1,2}[A-Z]{0,3}[0-9]{4}$`).
-- [x] Positional grammar character ambiguity resolver (`0` vs `O`, `8` vs `B`, `1` vs `I`, `5` vs `S`).
-- [x] Multi-frame OCR voting accumulator resolving noise across moving frames.
+### Phase 2: Google Colab Training Pipeline (COMPLETED)
+- [x] Packaged training dataset into `datasets/merged.zip` via `scripts/zip_dataset.py`.
+- [x] Created `notebooks/train_colab.ipynb` for T4 GPU training with automated Drive export for weights, confusion matrices, and metrics.
 
-### Phase 4: Traffic Rules (Red-Light, Wrong-Way, Cabin Rules) (COMPLETED - 100%)
-- [x] Configurable virtual stop lines and segment intersection detection (`ccw` line cross algorithm).
-- [x] Red light state tracker (HSV color mask thresholding on traffic light crops).
-- [x] Centroid movement vector estimation and lane flow angle deviation check (`WrongWayViolationRule`).
-- [x] Cabin region heuristics and graceful operational status reporting for seatbelt and mobile phone rules.
+### Phase 3: Core Pipeline Code Fixes & Robustness (COMPLETED)
+- [x] Custom model full-frame single-pass inference (`models/traffic_custom.pt`).
+- [x] Spatial top-35% rider bounding box rule for helmet detection.
+- [x] Targeted 10% padded plate crop OCR triggered exclusively for confirmed violation tracks.
+- [x] Synchronized video-time cooldown calculation (`frame_idx / fps`).
+- [x] ByteTrack integration with native Ultralytics tracker.
+- [x] Eliminated all hardcoded metrics from Dashboard and Analytics API.
+- [x] Rebranded notices to "Prototype violation notice" (`PROTO-`).
 
-### Phase 5: Production Polish, E-Challan System & Scenario Simulation (COMPLETED - 100%)
-- [x] Official Indian Motor Vehicles Act E-Challan service (`ChallanService`) with penal code lookup (Sec 194D, 194C, 184, 194B) and penalty amount schedules.
-- [x] Interactive E-Challan generation, dispatch, and JSON/receipt export directly from dashboard and API.
-- [x] Synthetic Scenario Generator (`scripts/scenario_generator.py`) providing instant one-click test scenes:
-  - Scenario 1: Motorcycle Triple Riding & No Helmet (`scenario_helmet_triple.mp4`)
-  - Scenario 2: Red Light Stop-Line Jumping (`scenario_red_light.mp4`)
-  - Scenario 3: Wrong-Way Corridor Driving (`scenario_wrong_way.mp4`)
-- [x] Hotspot mapping (Plotly carto scatter visualization of Bengaluru junction coordinates).
-- [x] Vehicle search registry with cumulative violation ledgers and forensic evidence inspection.
-- [x] Camera Management with virtual and physical RTSP endpoints.
-
-### Phase 6: Automated Testing & Hardware Benchmarking (COMPLETED - 100%)
-- [x] 15/15 unit and integration tests passing (`pytest tests/ scripts/test_pipeline.py`).
-- [x] Hardware latency benchmark suite (`scripts/benchmark.py`) achieving ~24.2 FPS on CPU with PyTorch and YOLOv8n.
-- [x] Live benchmark trigger and stop-line visual preview integrated into Dashboard UI.
+### Phase 4: Video Processing CLI & Hardware Benchmarking (COMPLETED)
+- [x] End-to-end video inference CLI (`scripts/run_video.py`) with stop-line and traffic signal state controls.
+- [x] Processed test video `data/videos/22.mp4` and generated 5 forensic detection snapshots.
+- [x] Real hardware inference benchmark (`scripts/benchmark.py`) achieving ~23.9 FPS on CPU with YOLO26n.
+- [x] Comprehensive documentation in `docs/MODEL_RESULTS.md` detailing dataset distributions and honest limitations.
 

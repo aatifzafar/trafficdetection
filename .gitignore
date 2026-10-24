@@ -26,6 +26,7 @@ data/*.db
 data/*.sqlite*
 data/evidence/*
 !data/evidence/.gitkeep
+data/videos/processed_*.mp4
 
 # IDE / Editor folders
 .vscode/

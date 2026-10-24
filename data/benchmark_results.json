@@ -1,15 +1,15 @@
 {
   "device": "cpu",
-  "model": "models/yolov8n.pt",
+  "model": "models/yolo26n.pt",
   "tracker": "bytetrack",
   "input_resolution": "640x640",
-  "iterations": 30,
-  "total_time_sec": 1.24,
-  "average_fps": 24.24,
-  "mean_latency_ms": 39.06,
-  "median_latency_ms": 38.96,
-  "p95_latency_ms": 41.14,
-  "min_latency_ms": 35.65,
-  "max_latency_ms": 41.29,
-  "timestamp": "2026-10-14 15:45:02"
+  "iterations": 50,
+  "total_time_sec": 2.09,
+  "average_fps": 23.87,
+  "mean_latency_ms": 39.11,
+  "median_latency_ms": 38.46,
+  "p95_latency_ms": 45.54,
+  "min_latency_ms": 34.05,
+  "max_latency_ms": 47.44,
+  "timestamp": "2026-10-24 12:01:09"
 }
