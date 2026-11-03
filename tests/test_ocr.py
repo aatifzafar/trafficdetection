@@ -1,5 +1,5 @@
 import pytest
-from vision.ocr.plate_recognizer import PlateRecognizer
+from algorithms.plate_ocr.plate_recognizer import PlateRecognizer
 
 
 def test_plate_normalization_indian_formats():

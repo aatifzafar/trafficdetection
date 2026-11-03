@@ -4,7 +4,7 @@ from sqlalchemy.orm import Session
 from sqlalchemy import desc
 
 from backend.database.database import get_db
-from backend.models.models import Alert
+from backend.db_models.models import Alert
 from backend.schemas.schemas import AlertResponse
 from backend.services.alert_service import alert_service
 

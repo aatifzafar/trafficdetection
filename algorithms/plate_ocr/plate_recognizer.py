@@ -1,0 +1,242 @@
+import re
+import logging
+from collections import defaultdict
+from typing import Dict, Any, Optional, List, Tuple
+import cv2
+import numpy as np
+
+logger = logging.getLogger(__name__)
+
+
+class PlateRecognizer:
+    """
+    Automatic License Plate Recognition (ALPR) system with image preprocessing,
+    Indian registration plate format normalization, and multi-frame voting.
+    """
+
+    def __init__(
+        self,
+        engine_type: str = "easyocr",
+        plate_regex: str = r"^[A-Z]{2}[0-9]{1,2}[A-Z]{0,3}[0-9]{4}$",
+        min_confidence: float = 0.20,
+    ):
+        self.plate_regex = re.compile(plate_regex)
+        self.min_confidence = min_confidence
+        self.ocr_reader = None
+        self.engine_type = engine_type.lower()
+        self._ocr_initialized = False
+
+        # Multi-frame voting accumulator: track_id -> { plate_text: {"count": N, "total_conf": float} }
+        self.track_votes: Dict[int, Dict[str, Dict[str, Any]]] = defaultdict(lambda: defaultdict(lambda: {"count": 0, "total_conf": 0.0}))
+
+    def _ensure_ocr(self):
+        if self._ocr_initialized:
+            return
+        self._ocr_initialized = True
+        try:
+            if self.engine_type == "easyocr":
+                import easyocr
+                logger.info("Initializing EasyOCR reader (English)...")
+                # gpu=False by default for reliable cpu execution or falls back gracefully
+                self.ocr_reader = easyocr.Reader(["en"], gpu=False)
+                logger.info("EasyOCR reader initialized successfully.")
+        except Exception as e:
+            logger.warning(f"Could not initialize {self.engine_type}: {e}. Fallback OCR mode active.")
+
+    def preprocess_plate(self, img: np.ndarray) -> np.ndarray:
+        """Applies grayscale, bilateral filter, and adaptive thresholding for plate OCR clarity."""
+        if len(img.shape) == 3:
+            gray = cv2.cvtColor(img, cv2.COLOR_BGR2GRAY)
+        else:
+            gray = img
+
+        # Resize for standard OCR input if too small
+        h, w = gray.shape[:2]
+        if w < 120 or h < 35:
+            scale = max(120 / max(1, w), 35 / max(1, h))
+            gray = cv2.resize(gray, (int(w * scale), int(h * scale)), interpolation=cv2.INTER_CUBIC)
+
+        # Bilateral filter to remove noise while keeping edges sharp
+        filtered = cv2.bilateralFilter(gray, 11, 17, 17)
+
+        # Adaptive thresholding
+        thresh = cv2.adaptiveThreshold(
+            filtered, 255, cv2.ADAPTIVE_THRESH_GAUSSIAN_C, cv2.THRESH_BINARY, 11, 2
+        )
+        return thresh
+
+    def normalize_indian_plate(self, raw_text: str) -> Optional[str]:
+        """
+        Cleans and normalizes OCR text using Indian High-Security Plate rules.
+        Replaces ambiguous characters based on positional grammar:
+        [State 2 Letters][District 1-2 Digits][Series 0-3 Letters][Number 4 Digits]
+        """
+        cleaned = re.sub(r"[^A-Za-z0-9]", "", raw_text).upper()
+        if cleaned.startswith("IND") and len(cleaned) > 10:
+            cleaned = cleaned[3:]
+        if len(cleaned) < 8 or len(cleaned) > 11:
+            return None
+
+        # Positional character correction mappings
+        to_letters = {"0": "O", "1": "I", "8": "B", "5": "S", "2": "Z"}
+        to_digits = {"O": "0", "I": "1", "B": "8", "S": "5", "Z": "2", "G": "6", "Q": "0"}
+
+        chars = list(cleaned)
+
+        # Positions 0, 1 must be State Letters (e.g. KA, DL, MH)
+        for i in [0, 1]:
+            if chars[i] in to_letters:
+                chars[i] = to_letters[chars[i]]
+
+        # Position 2, 3 must be District Digits (e.g. 01, 05)
+        for i in [2, 3]:
+            if i < len(chars) and chars[i] in to_digits:
+                chars[i] = to_digits[chars[i]]
+
+        # Last 4 characters must be Number Digits
+        for i in range(len(chars) - 4, len(chars)):
+            if chars[i] in to_digits:
+                chars[i] = to_digits[chars[i]]
+
+        candidate = "".join(chars)
+        if self.plate_regex.match(candidate):
+            return candidate
+
+        return None
+
+    def _extract_from_ocr_results(self, results: List[Any]) -> Optional[Tuple[str, float]]:
+        if not results:
+            return None
+
+        # 1. Check single box candidates first (if whole plate captured in one box)
+        for bbox, text, conf in results:
+            if conf >= self.min_confidence:
+                normalized = self.normalize_indian_plate(text)
+                if normalized:
+                    return (normalized, float(conf))
+
+        # 2. Check multi-box combination (e.g. Indian 2-row motorcycle plates "KL 09" on top, "AQ 3439" on bottom)
+        valid_items = [r for r in results if r[2] >= max(0.15, self.min_confidence * 0.7)]
+        if len(valid_items) >= 2:
+            # Sort boxes primarily by vertical Y coordinate, secondarily by horizontal X coordinate
+            sorted_boxes = sorted(
+                valid_items,
+                key=lambda r: (
+                    round((r[0][0][1] + r[0][2][1]) / 40.0),
+                    (r[0][0][0] + r[0][2][0]) / 2.0,
+                ),
+            )
+            joined_text = " ".join([r[1] for r in sorted_boxes])
+            avg_conf = sum([r[2] for r in sorted_boxes]) / len(sorted_boxes)
+            normalized = self.normalize_indian_plate(joined_text)
+            if normalized and avg_conf >= max(0.20, self.min_confidence * 0.8):
+                return (normalized, float(avg_conf))
+
+        return None
+
+    def read_plate(self, crop: np.ndarray) -> Optional[Tuple[str, float]]:
+        """Runs OCR on cropped plate/bumper region."""
+        self._ensure_ocr()
+        if crop is None or crop.size == 0 or self.ocr_reader is None:
+            return None
+
+        try:
+            # 1. Try on raw crop first (retains subtle contrast gradients)
+            raw_results = self.ocr_reader.readtext(crop)
+            candidate = self._extract_from_ocr_results(raw_results)
+            if candidate:
+                return candidate
+
+            # 2. Try on preprocessed crop (grayscale + bilateral + adaptive thresh)
+            preprocessed = self.preprocess_plate(crop)
+            results = self.ocr_reader.readtext(preprocessed)
+            candidate = self._extract_from_ocr_results(results)
+            if candidate:
+                return candidate
+        except Exception as e:
+            logger.debug(f"OCR inference step error: {e}")
+
+        return None
+
+    def update_track_plate(
+        self, track_id: int, plate_text: str, confidence: float
+    ) -> str:
+        """
+        Registers OCR prediction into the multi-frame voting pool for this vehicle track,
+        and returns the consensus winning plate string.
+        """
+        votes = self.track_votes[track_id]
+        votes[plate_text]["count"] += 1
+        votes[plate_text]["total_conf"] += confidence
+
+        # Pick candidate with highest vote count, tie-broken by average confidence
+        best_plate = max(
+            votes.keys(),
+            key=lambda p: (
+                votes[p]["count"],
+                votes[p]["total_conf"] / max(1, votes[p]["count"]),
+            ),
+        )
+        return best_plate
+
+    def get_track_plate(self, track_id: int) -> Optional[str]:
+        """Returns current consensus plate for track_id if any."""
+        votes = self.track_votes.get(track_id)
+        if not votes:
+            return None
+        return max(
+            votes.keys(),
+            key=lambda p: (
+                votes[p]["count"],
+                votes[p]["total_conf"] / max(1, votes[p]["count"]),
+            ),
+        )
+
+    def get_best_overall_plate(self) -> Optional[Tuple[str, float, int]]:
+        """
+        Returns (plate_text, avg_confidence, track_id) for the highest-voted plate
+        across all tracked vehicles in the video or stream.
+        """
+        candidates = []
+        for track_id, votes in self.track_votes.items():
+            for plate_text, data in votes.items():
+                cnt = data.get("count", 0)
+                tot = data.get("total_conf", 0.0)
+                avg_conf = tot / max(1, cnt)
+                candidates.append((plate_text, avg_conf, cnt, track_id))
+        if not candidates:
+            return None
+        candidates.sort(key=lambda c: (c[2], c[1]), reverse=True)
+        best = candidates[0]
+        return (best[0], best[1], best[3])
+
+    def read_plate_from_full_image(self, img: np.ndarray) -> Optional[Tuple[str, float, np.ndarray]]:
+        """
+        Runs OCR on a full photo/frame without pre-computed vehicle bounding boxes.
+        Returns (plate_text, confidence, plate_crop) if a valid Indian license plate is found.
+        """
+        self._ensure_ocr()
+        if img is None or img.size == 0 or self.ocr_reader is None:
+            return None
+        try:
+            results = self.ocr_reader.readtext(img)
+            for bbox, text, conf in results:
+                if conf >= self.min_confidence:
+                    norm = self.normalize_indian_plate(text)
+                    if norm:
+                        pts = np.array(bbox, dtype=np.int32)
+                        x1 = max(0, int(np.min(pts[:, 0])))
+                        y1 = max(0, int(np.min(pts[:, 1])))
+                        x2 = min(img.shape[1], int(np.max(pts[:, 0])))
+                        y2 = min(img.shape[0], int(np.max(pts[:, 1])))
+                        crop = img[y1:y2, x1:x2].copy()
+                        return norm, float(conf), crop
+
+            cand = self._extract_from_ocr_results(results)
+            if cand:
+                norm, conf = cand
+                return norm, conf, img
+        except Exception as e:
+            logger.debug(f"Full image OCR error: {e}")
+        return None
+

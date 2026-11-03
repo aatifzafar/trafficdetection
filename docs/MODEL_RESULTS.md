@@ -2,7 +2,7 @@
 
 ## 1. Merged Training & Validation Dataset
 
-The training dataset was constructed by merging and harmonizing multiple raw datasets (Pascal VOC XML and Roboflow YOLO formats) from `training dataset/`. Exact duplicates across collections (such as between HelmetViolations v1 and v2) were removed using SHA-256 byte hashing. All video frames from sequential sources (archive 9) were strictly grouped into the training partition to prevent cross-split data leakage.
+The training dataset was constructed by merging and harmonizing multiple raw datasets (Pascal VOC XML and Roboflow YOLO formats) from `datasets/raw/`. Exact duplicates across collections (such as between HelmetViolations v1 and v2) were removed using SHA-256 byte hashing. All video frames from sequential sources (archive 9) were strictly grouped into the training partition to prevent cross-split data leakage.
 
 ### Dataset Overview
 - **Total Unique Images**: 4,016
@@ -76,7 +76,7 @@ The confusion matrix visualization generated during validation is located at:
 
 ## 4. Hardware Inference Benchmark (Local System)
 
-Measured with `scripts/benchmark.py` running 50 iterations at 640x640 resolution with ByteTrack:
+Measured with `evaluation/benchmark.py` running 50 iterations at 640x640 resolution with ByteTrack:
 
 - **Primary Traffic Model**: `yolo26n.pt` (NMS-free)
 - **Inference Hardware**: Local CPU (`win32`, Python 3.14)

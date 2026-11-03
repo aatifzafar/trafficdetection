@@ -4,7 +4,7 @@ from fastapi import APIRouter, Depends, HTTPException, status
 from sqlalchemy.orm import Session
 
 from backend.database.database import get_db
-from backend.models.models import CameraSource
+from backend.db_models.models import CameraSource
 from backend.schemas.schemas import CameraCreate, CameraResponse
 
 logger = logging.getLogger(__name__)

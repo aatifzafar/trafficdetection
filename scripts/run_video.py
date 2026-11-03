@@ -24,7 +24,7 @@ import numpy as np
 sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), "..")))
 
 from backend.config.settings import settings
-from vision.pipeline import TrafficVisionPipeline
+from pipeline.traffic_pipeline import TrafficVisionPipeline
 
 
 def parse_args():

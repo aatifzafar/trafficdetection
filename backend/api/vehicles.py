@@ -3,7 +3,7 @@ from sqlalchemy.orm import Session
 from sqlalchemy import desc
 
 from backend.database.database import get_db
-from backend.models.models import Vehicle, Violation
+from backend.db_models.models import Vehicle, Violation
 from backend.schemas.schemas import VehicleResponse
 
 router = APIRouter(prefix="/api/vehicles", tags=["Vehicles"])

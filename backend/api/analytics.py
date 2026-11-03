@@ -5,7 +5,7 @@ from sqlalchemy.orm import Session
 from sqlalchemy import func
 
 from backend.database.database import get_db
-from backend.models.models import Violation, CameraSource, Vehicle
+from backend.db_models.models import Violation, CameraSource, Vehicle
 from backend.schemas.schemas import (
     AnalyticsSummaryResponse,
     AnalyticsByTypeResponse,

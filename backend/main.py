@@ -6,7 +6,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
 
 from backend.config.settings import settings
-from backend.database.database import Base, engine
+from backend.database.database import Base, engine, ensure_schema
 from backend.api import cameras, violations, analytics, uploads, vehicles, alerts
 
 # Setup logging
@@ -22,7 +22,7 @@ os.makedirs("data/evidence", exist_ok=True)
 os.makedirs("models", exist_ok=True)
 
 # Initialize database tables
-Base.metadata.create_all(bind=engine)
+ensure_schema()
 logger.info("Database schemas verified and initialized.")
 
 app = FastAPI(

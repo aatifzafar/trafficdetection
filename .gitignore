@@ -27,6 +27,14 @@ data/*.sqlite*
 data/evidence/*
 !data/evidence/.gitkeep
 data/videos/processed_*.mp4
+data/citizen_uploads/*
+!data/citizen_uploads/.gitkeep
+
+# Large archives and zips
+*.zip
+*.tar.gz
+*.7z
+*.rar
 
 # IDE / Editor folders
 .vscode/
@@ -38,5 +46,8 @@ data/videos/processed_*.mp4
 .DS_Store
 Thumbs.db
 # Datasets
-datasets/
-training dataset/*.zip
+datasets/*
+!datasets/raw/
+datasets/raw/*
+!datasets/raw/README.md
+!datasets/raw/download_kaggle_datasets.py

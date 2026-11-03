@@ -1,8 +1,8 @@
 import pytest
 import numpy as np
-from vision.detector.detector import DetectionResult
-from vision.tracker import create_tracker, TrackedObject
-from vision.association.rider_association import RiderMotorcycleAssociator
+from algorithms.detection.detector import DetectionResult
+from algorithms.tracking import create_tracker, TrackedObject
+from algorithms.association.rider_association import RiderMotorcycleAssociator
 
 
 def test_tracker_persistent_ids():

@@ -49,7 +49,11 @@ class ViolationBase(BaseModel):
     location: str
     camera_id: Optional[int] = None
     evidence_path: Optional[str] = None
-    status: str = "CONFIRMED"
+    status: str = "PENDING_REVIEW"
+    reviewed_by: Optional[str] = None
+    reject_reason: Optional[str] = None
+    source: Optional[str] = "CCTV"
+    merged_count: Optional[int] = 0
 
 
 class ViolationResponse(ViolationBase):

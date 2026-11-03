@@ -7,8 +7,8 @@ from fastapi import APIRouter, UploadFile, File, Form, HTTPException, Background
 from sqlalchemy.orm import Session
 
 from backend.database.database import get_db
-from backend.models.models import CameraSource
-from vision.pipeline import TrafficVisionPipeline
+from backend.db_models.models import CameraSource
+from pipeline.traffic_pipeline import TrafficVisionPipeline
 
 logger = logging.getLogger(__name__)
 router = APIRouter(prefix="/api", tags=["Video Upload & Processing"])

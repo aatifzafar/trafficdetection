@@ -8,8 +8,10 @@ from sqlalchemy.orm import Session
 from sqlalchemy import desc
 
 from backend.database.database import get_db
-from backend.models.models import Violation, Evidence
+from backend.db_models.models import Violation, Evidence
+from pydantic import BaseModel
 from backend.schemas.schemas import ViolationResponse, ViolationDetailResponse, EvidenceResponse
+from backend.services import review_service
 
 logger = logging.getLogger(__name__)
 router = APIRouter(prefix="/api/violations", tags=["Violations"])
@@ -107,14 +109,12 @@ def get_violation_challan(viol_id: int, db: Session = Depends(get_db)):
 
 
 @router.post("/{viol_id}/issue-challan")
-def issue_violation_challan(viol_id: int, db: Session = Depends(get_db)):
-    """Formally issue e-challan and update violation status to CHALLAN_ISSUED."""
-    viol = db.query(Violation).filter(Violation.id == viol_id).first()
-    if not viol:
+def issue_violation_challan(viol_id: int, reviewer: str = Query("API user"), db: Session = Depends(get_db)):
+    """Approve the detection and create a prototype notice (not an official e-challan)."""
+    try:
+        viol = review_service.approve(db, viol_id, reviewer)
+    except ValueError:
         raise HTTPException(status_code=404, detail="Violation not found")
-
-    viol.status = "CHALLAN_ISSUED"
-    db.commit()
 
     evidence = db.query(Evidence).filter(Evidence.violation_id == viol_id).first()
     img_path = evidence.image_path if evidence else viol.evidence_path
@@ -129,11 +129,38 @@ def issue_violation_challan(viol_id: int, db: Session = Depends(get_db)):
         confidence=viol.confidence,
         evidence_image_path=img_path,
     )
-    return {"message": "E-Challan successfully dispatched", "challan": challan}
+    return {"message": "Approved. Prototype notice created.", "challan": challan}
+
+
+class ReviewRequest(BaseModel):
+    action: str  # approve | reject | correct_plate | dispute
+    reviewer: str = "API user"
+    reason: Optional[str] = None
+    plate: Optional[str] = None
+
+
+@router.post("/{viol_id}/review")
+def review_violation(viol_id: int, payload: ReviewRequest, db: Session = Depends(get_db)):
+    """Officer review: approve, reject (reason required), correct the plate, or record an owner dispute."""
+    try:
+        if payload.action == "approve":
+            viol = review_service.approve(db, viol_id, payload.reviewer)
+        elif payload.action == "reject":
+            viol = review_service.reject(db, viol_id, payload.reviewer, payload.reason or "")
+        elif payload.action == "correct_plate":
+            viol = review_service.correct_plate(db, viol_id, payload.plate or "", payload.reviewer)
+        elif payload.action == "dispute":
+            viol = review_service.dispute(db, viol_id)
+        else:
+            raise HTTPException(status_code=400, detail="action must be approve, reject, correct_plate or dispute")
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+    return {"id": viol.id, "status": viol.status, "plate_number": viol.plate_number,
+            "reviewed_by": viol.reviewed_by, "reject_reason": viol.reject_reason}
 
 
 @router.post("/{viol_id}/status")
-def update_violation_status(viol_id: int, new_status: str = Query(..., description="CONFIRMED, PENDING_REVIEW, DISMISSED, CHALLAN_ISSUED"), db: Session = Depends(get_db)):
+def update_violation_status(viol_id: int, new_status: str = Query(..., description="PENDING_REVIEW, APPROVED, REJECTED, DISPUTED"), db: Session = Depends(get_db)):
     """Update violation audit status."""
     viol = db.query(Violation).filter(Violation.id == viol_id).first()
     if not viol:

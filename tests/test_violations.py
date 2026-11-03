@@ -1,12 +1,12 @@
 import time
 import pytest
 import numpy as np
-from vision.tracker.base_tracker import TrackedObject
-from vision.association.rider_association import MotorcycleRiderGroup
-from vision.rules.helmet_rule import HelmetViolationRule
-from vision.rules.triple_riding_rule import TripleRidingRule
-from vision.rules.red_light_rule import RedLightViolationRule, line_segments_intersect
-from vision.rules.wrong_way_rule import WrongWayViolationRule
+from algorithms.tracking.base_tracker import TrackedObject
+from algorithms.association.rider_association import MotorcycleRiderGroup
+from algorithms.violation_rules.helmet_rule import HelmetViolationRule
+from algorithms.violation_rules.triple_riding_rule import TripleRidingRule
+from algorithms.violation_rules.red_light_rule import RedLightViolationRule, line_segments_intersect
+from algorithms.violation_rules.wrong_way_rule import WrongWayViolationRule
 
 
 def test_triple_riding_rule_temporal_confirmation():
@@ -102,7 +102,7 @@ def test_wrong_way_direction_detection():
 
 def test_helmet_rule_detection():
     from unittest.mock import MagicMock
-    from vision.detector.detector import DetectionResult
+    from algorithms.detection.detector import DetectionResult
 
     rule = HelmetViolationRule(temporal_window=3, min_positive_frames=1, cooldown_seconds=5.0)
 

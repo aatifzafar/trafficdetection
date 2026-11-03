@@ -1,0 +1,48 @@
+{
+  "yolo26n": {
+    "model": "yolo26n",
+    "label": "YOLO26n (2026, nano) \u2014 project model",
+    "weights": "models/yolo26n.pt",
+    "frames": 150,
+    "detect_ms_mean": 105.0,
+    "detect_ms_p95": 249.7,
+    "pipeline_fps": 4.18,
+    "vehicles_per_frame": 3.09,
+    "people_per_frame": 0.76,
+    "mean_confidence": 0.621,
+    "frames_with_vehicle_pct": 100.0,
+    "vehicles_tracked": 39,
+    "violations_flagged": 1,
+    "violations_by_type": {
+      "WRONG_WAY": 1
+    },
+    "sample_frame": "data\\model_comparison\\yolo26n.jpg",
+    "sample_frame_index": 75,
+    "video": "data/videos/traffic_junction_cctv.mp4",
+    "device": "cpu",
+    "timestamp": "2026-11-02 10:45:15"
+  },
+  "yolo26s": {
+    "model": "yolo26s",
+    "label": "YOLO26s (2026, small)",
+    "weights": "models/yolo26s.pt",
+    "frames": 150,
+    "detect_ms_mean": 113.9,
+    "detect_ms_p95": 258.4,
+    "pipeline_fps": 6.14,
+    "vehicles_per_frame": 4.48,
+    "people_per_frame": 1.27,
+    "mean_confidence": 0.649,
+    "frames_with_vehicle_pct": 100.0,
+    "vehicles_tracked": 56,
+    "violations_flagged": 1,
+    "violations_by_type": {
+      "WRONG_WAY": 1
+    },
+    "sample_frame": "data\\model_comparison\\yolo26s.jpg",
+    "sample_frame_index": 75,
+    "video": "data/videos/traffic_junction_cctv.mp4",
+    "device": "cpu",
+    "timestamp": "2026-11-02 10:45:15"
+  }
+}

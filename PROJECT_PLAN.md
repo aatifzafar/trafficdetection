@@ -46,7 +46,7 @@ The system automates the detection and reporting of traffic safety and traffic o
   - Class 1: `no_helmet`
   - Class 2: `number_plate`
 - Built from 4,016 merged and deduplicated images across 6 source archives (`datasets/merged/`).
-- Trained on Google Colab T4 GPU via `notebooks/train_colab.ipynb`.
+- Trained on Google Colab T4 GPU via `training/train_colab.ipynb`.
 
 ### Prototype / Fallback Strategy:
 - **No Fake AI:** When custom trained weights are not in the `models/` directory, the system automatically uses a robust fallback pipeline:
@@ -71,8 +71,8 @@ The system automates the detection and reporting of traffic safety and traffic o
 - [x] Generated `datasets/merged/data.yaml` and 12-sample annotated preview `datasets/merged/preview.jpg`.
 
 ### Phase 2: Google Colab Training Pipeline (COMPLETED)
-- [x] Packaged training dataset into `datasets/merged.zip` via `scripts/zip_dataset.py`.
-- [x] Created `notebooks/train_colab.ipynb` for T4 GPU training with automated Drive export for weights, confusion matrices, and metrics.
+- [x] Packaged training dataset into `datasets/merged.zip` via `training/zip_dataset.py`.
+- [x] Created `training/train_colab.ipynb` for T4 GPU training with automated Drive export for weights, confusion matrices, and metrics.
 
 ### Phase 3: Core Pipeline Code Fixes & Robustness (COMPLETED)
 - [x] Custom model full-frame single-pass inference (`models/traffic_custom.pt`).
@@ -86,6 +86,6 @@ The system automates the detection and reporting of traffic safety and traffic o
 ### Phase 4: Video Processing CLI & Hardware Benchmarking (COMPLETED)
 - [x] End-to-end video inference CLI (`scripts/run_video.py`) with stop-line and traffic signal state controls.
 - [x] Processed test video `data/videos/22.mp4` and generated 5 forensic detection snapshots.
-- [x] Real hardware inference benchmark (`scripts/benchmark.py`) achieving ~23.9 FPS on CPU with YOLO26n.
+- [x] Real hardware inference benchmark (`evaluation/benchmark.py`) achieving ~23.9 FPS on CPU with YOLO26n.
 - [x] Comprehensive documentation in `docs/MODEL_RESULTS.md` detailing dataset distributions and honest limitations.
 

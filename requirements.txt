@@ -1,6 +1,7 @@
 # Core Machine Learning & Vision
 torch>=2.2.0
 torchvision>=0.17.0
+lap>=0.5.12  # required by Ultralytics ByteTrack
 ultralytics>=8.4.0
 opencv-python>=4.9.0
 numpy>=1.26.0
@@ -21,8 +22,8 @@ SQLAlchemy>=2.0.28
 psycopg2-binary>=2.9.9; sys_platform != "win32" or implementation_name == "cpython"
 
 # Dashboard & Visualization
-streamlit>=1.32.0
-plotly>=5.19.0
+streamlit>=1.40.0  # needs st.container(key=...) used by the dashboard theme
+plotly>=5.24.0
 pandas>=2.2.0
 
 # Testing & Utility

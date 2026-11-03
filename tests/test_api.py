@@ -2,7 +2,7 @@ import pytest
 from fastapi.testclient import TestClient
 from backend.main import app
 from backend.database.database import Base, engine, SessionLocal
-from backend.models.models import Violation, CameraSource
+from backend.db_models.models import Violation, CameraSource
 
 client = TestClient(app)
 
@@ -99,8 +99,32 @@ def test_database_violation_insertion():
         assert res_issue.json()["challan"]["violation_id"] == viol_id
 
         # Verify status updated
+        db.expire_all()
         v_check = db.query(Violation).filter(Violation.id == viol_id).first()
-        assert v_check.status == "CHALLAN_ISSUED"
+        assert v_check.status == "APPROVED"
     finally:
         db.close()
 
+
+
+def test_review_workflow_requires_reason_and_records_reviewer():
+    import uuid
+    db = SessionLocal()
+    try:
+        v = Violation(event_id=f"EVT-REVIEW-{uuid.uuid4().hex[:8]}", violation_type="TRIPLE_RIDING",
+                      confidence=0.8, location="Review Junction")
+        db.add(v)
+        db.commit()
+        assert v.status == "PENDING_REVIEW"
+        vid = v.id
+
+        r = client.post(f"/api/violations/{vid}/review", json={"action": "reject", "reviewer": "Insp. Test"})
+        assert r.status_code == 400  # reason is mandatory
+
+        r = client.post(f"/api/violations/{vid}/review",
+                        json={"action": "reject", "reviewer": "Insp. Test", "reason": "Not a violation"})
+        assert r.status_code == 200
+        assert r.json()["status"] == "REJECTED"
+        assert r.json()["reviewed_by"] == "Insp. Test"
+    finally:
+        db.close()
