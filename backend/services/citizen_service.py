@@ -505,9 +505,11 @@ def _manual_record(
     annotated_img: Optional[Any] = None,
     shared_folder: Optional[Path] = None,
     shared_image: Optional[Path] = None,
+    event_id: Optional[str] = None,
 ) -> Violation:
     """The citizen's report, saved with AI detection details when available, or for officer review."""
-    event_id = _ref().replace("CIT-", "EVT-CIT-")
+    if not event_id:
+        event_id = _ref().replace("CIT-", "EVT-CIT-")
     if shared_folder is not None:
         folder = shared_folder
     else:
@@ -515,6 +517,13 @@ def _manual_record(
         folder.mkdir(parents=True, exist_ok=True)
 
     is_video = upload.suffix.lower() in VIDEO_TYPES
+    orig_image = folder / f"original_upload{upload.suffix.lower()}"
+    if not orig_image.exists() and upload.exists():
+        try:
+            shutil.copy(upload, orig_image)
+        except Exception:
+            pass
+
     if shared_image is not None:
         image = shared_image
         clip = folder / f"evidence{upload.suffix.lower()}" if is_video else None
@@ -544,6 +553,9 @@ def _manual_record(
     meta = {
         "event_id": event_id,
         "source": "CITIZEN",
+        "original_image": str(orig_image) if orig_image.exists() else str(upload),
+        "annotated_image": str(image) if image else None,
+        "model_predictions": info.get("model_predictions", []),
         "extra": {
             "citizen_manual": ai_confidence == 0.0,
             "source": "CITIZEN",
@@ -558,12 +570,23 @@ def _manual_record(
             "sharpness": info.get("sharpness"),
             "crop_dimensions": info.get("crop_dimensions"),
             "diagnostic_trace": info.get("diagnostic_trace", []),
+            "motion_verified": info.get("motion_verified", False),
+            "verification_status": info.get("verification_status", "POTENTIAL WRONG-WAY CANDIDATE (UNVERIFIED — PHOTO ONLY)" if chosen_type == "WRONG_WAY" and ai_confidence > 0 else ("NOT_VERIFIED" if chosen_type == "WRONG_WAY" else ("VERIFIED" if ai_confidence > 0 else "PENDING_REVIEW"))),
+            "unverified_reason": info.get("unverified_reason"),
+            "vehicles_detected_count": info.get("vehicles_detected_count", 0),
+            "orientation_consensus": info.get("orientation_consensus"),
+            "dominant_flow": info.get("dominant_flow"),
+            "vehicle_orientation": info.get("vehicle_orientation"),
+            "angle_deviation_deg": info.get("angle_deviation_deg"),
+            "candidate_bbox": info.get("candidate_bbox"),
+            "vehicle_type": info.get("vehicle_type"),
+            "model_predictions": info.get("model_predictions", []),
         },
         "upload": str(upload),
         "claimed_type": info.get("claimed_violation") or chosen_type,
         "actual_type": chosen_type,
     }
-    meta_path = folder / f"metadata_{event_id}.json" if shared_folder else folder / "metadata.json"
+    meta_path = folder / f"metadata_{event_id}.json" if (shared_folder and folder.name != event_id) else folder / "metadata.json"
     meta_path.write_text(json.dumps(meta, indent=2), encoding="utf-8")
 
     vehicle_rec = None
@@ -619,7 +642,10 @@ def process_upload(upload: Path, info: Dict[str, Any],
 
         cfg = load_config_fresh()
         viol = dict(cfg.get("violations") or {})
-        viol.update({"red_light": False, "wrong_way": False})  # need a calibrated camera
+        if claimed_viol in {"WRONG_WAY", "AUTO_DETECT", None}:
+            viol.update({"red_light": False, "wrong_way": True})
+        else:
+            viol.update({"red_light": False, "wrong_way": False})  # need a calibrated camera
         cfg["violations"] = viol
         pipe = TrafficVisionPipeline(config=cfg, camera_id=info.get("camera_id"),
                                      location=info.get("location") or "Citizen upload", source="CITIZEN")
@@ -653,20 +679,72 @@ def process_upload(upload: Path, info: Dict[str, Any],
                 if res:
                     auto_plate, _, auto_crop = res
 
-                # Vehicle-type-aware AI classification
+                # Vehicle-type-aware AI classification (Seatbelt, Helmet, Triple Riding, Phone)
                 classification = classify_citizen_photo(img, claimed_viol=claimed_viol)
-                unique_violations = classification["unique_violations"]
-                photo_annotated = classification["photo_annotated"]
-                photo_ai_note = classification["detection_note"]
+                unique_violations = dict(classification.get("unique_violations") or {})
+                box_draw_list = list(classification.get("box_draw_list") or [])
+                photo_annotated = classification.get("photo_annotated")
+                photo_ai_note = classification.get("detection_note") or ""
                 compliance_status = classification.get("compliance_status")
                 sharpness = classification.get("sharpness")
                 crop_dimensions = classification.get("crop_dimensions")
                 diagnostic_trace = classification.get("diagnostic_trace", [])
 
+                # Run wrong-way orientation analysis across vehicles
+                from algorithms.detection.detector import TrafficDetector
+                from algorithms.violation_rules.photo_orientation_analyzer import PhotoOrientationAnalyzer
+                detector = TrafficDetector(confidence=0.25)
+                dets = detector.detect(img)
+                detected_vehicles = [
+                    d for d in dets
+                    if d.class_name.upper().replace(" ", "_").replace("-", "_") in {"CAR", "MOTORCYCLE", "BUS", "TRUCK", "AUTO", "VEHICLE"}
+                ]
+                photo_analyzer = PhotoOrientationAnalyzer()
+                orientation_res = photo_analyzer.analyze_photo(img, detected_vehicles, reported_violation=claimed_viol)
+
+                info["model_predictions"] = [
+                    {
+                        "bbox": [round(float(p), 1) for p in v["bbox"]],
+                        "class_name": v["class_name"],
+                        "confidence": round(float(v["confidence"]), 3),
+                        "orientation": v.get("orientation"),
+                        "is_outlier": v.get("is_outlier", False),
+                        "score": round(float(v.get("score", 0.0)), 3),
+                    }
+                    for v in orientation_res.get("vehicles", [])
+                ]
+
+                candidate_details: Dict[str, Any] = {}
+                if orientation_res["has_outlier"]:
+                    for cand in orientation_res["outlier_candidates"]:
+                        c_conf = cand["confidence"]
+                        unique_violations["WRONG_WAY"] = max(unique_violations.get("WRONG_WAY", 0.0), c_conf)
+                        candidate_details["WRONG_WAY"] = {
+                            "type": "WRONG_WAY",
+                            "confidence": c_conf,
+                            "bbox": cand["bbox"],
+                            "class": cand["class_name"],
+                            "motion_verified": False,
+                            "verification_status": "POTENTIAL WRONG-WAY CANDIDATE (UNVERIFIED — PHOTO ONLY)",
+                            "unverified_reason": (
+                                f"Visual orientation ({cand['orientation']}) opposes the dominant traffic flow "
+                                f"({orientation_res['consensus_summary']}). Motion cannot be confirmed without temporal video frames."
+                            ),
+                            "orientation_details": {
+                                "vehicle_orientation": cand["orientation"],
+                                "dominant_flow": orientation_res["dominant_orientation"],
+                                "consensus_summary": orientation_res["consensus_summary"],
+                                "angle_deviation_deg": 180.0,
+                                "score": cand["score"],
+                            },
+                        }
+                    photo_annotated = photo_analyzer.render_annotated_photo(img, orientation_res, other_detections=box_draw_list)
+
                 if unique_violations:
                     photo_ai_conf = max(unique_violations.values())
         except Exception as e:
-            logger.warning(f"Error analyzing photo upload: {e}")
+            logger.exception(f"Error analyzing photo upload: {e}")
+            info["processing_error"] = str(e)
 
     db = SessionLocal()
     try:
@@ -716,16 +794,32 @@ def process_upload(upload: Path, info: Dict[str, Any],
                     info_copy["violation_type"] = v_type
                     info_copy["auto_classified"] = True
                     info_copy["concurrent_violations"] = all_types
+                    cand_meta = candidate_details.get(v_type, {})
                     info_copy["status_category"] = compliance_status
                     info_copy["sharpness"] = sharpness
                     info_copy["crop_dimensions"] = crop_dimensions
                     info_copy["diagnostic_trace"] = diagnostic_trace
-                    other_v = [x for x in all_types if x != v_type]
-                    if other_v:
-                        info_copy["detection_note"] = f"Concurrent violation: Also detected {', '.join(other_v)} on this vehicle."
+                    if v_type == "WRONG_WAY":
+                        info_copy["motion_verified"] = False
+                        info_copy["verification_status"] = cand_meta.get("verification_status", "POTENTIAL WRONG-WAY CANDIDATE (UNVERIFIED — PHOTO ONLY)")
+                        info_copy["unverified_reason"] = cand_meta.get("unverified_reason", "Visual orientation opposes surrounding traffic flow.")
+                        info_copy["detection_note"] = f"AI detected potential wrong-way vehicle ({round(conf * 100)}% confidence). Visual orientation opposes carriageway traffic flow. Motion unverified in static photograph."
+                        if "orientation_details" in cand_meta:
+                            odet = cand_meta["orientation_details"]
+                            info_copy["orientation_consensus"] = odet.get("consensus_summary")
+                            info_copy["dominant_flow"] = odet.get("dominant_flow")
+                            info_copy["vehicle_orientation"] = odet.get("vehicle_orientation")
+                            info_copy["angle_deviation_deg"] = odet.get("angle_deviation_deg", 180.0)
+                        info_copy["candidate_bbox"] = cand_meta.get("bbox")
+                        info_copy["vehicle_type"] = cand_meta.get("class", "car")
                     else:
-                        info_copy["detection_note"] = f"AI verified '{v_type}' with {round(conf * 100)}% accuracy."
+                        other_v = [x for x in all_types if x != v_type]
+                        if other_v:
+                            info_copy["detection_note"] = f"Concurrent violation: Also detected {', '.join(other_v)} on this vehicle."
+                        else:
+                            info_copy["detection_note"] = f"AI verified '{v_type}' with {round(conf * 100)}% accuracy."
 
+                    single_event_id = base_event if len(all_types) == 1 else None
                     rec = _manual_record(
                         db,
                         upload,
@@ -736,18 +830,37 @@ def process_upload(upload: Path, info: Dict[str, Any],
                         auto_crop=auto_crop,
                         shared_folder=shared_folder,
                         shared_image=shared_img,
+                        event_id=single_event_id,
                     )
                     manual_records.append(rec)
             else:
                 info_copy = dict(info)
-                fallback_type = claimed_viol if claimed_viol not in {None, "AUTO_DETECT"} else "CITIZEN_REPORT"
+                orig_name = str(info.get("original_name") or upload.name or "").lower()
+                note_text = str(info.get("note") or "").lower()
+                is_ww_reported = (claimed_viol == "WRONG_WAY")
+                is_ww_keyword = any(k in orig_name or k in note_text for k in ["wrong", "counter", "opposite", "reverse", "retrograde", "oncoming"])
+
+                if is_ww_reported or is_ww_keyword:
+                    fallback_type = "WRONG_WAY"
+                elif claimed_viol and claimed_viol != "AUTO_DETECT":
+                    fallback_type = claimed_viol
+                else:
+                    fallback_type = "CITIZEN_REPORT"
+
                 info_copy["violation_type"] = fallback_type
                 info_copy["auto_classified"] = False
-                info_copy["detection_note"] = photo_ai_note if "photo_ai_note" in locals() and photo_ai_note else "AI Analysis Inconclusive: Forwarded for manual officer review."
                 info_copy["status_category"] = compliance_status if "compliance_status" in locals() else None
                 info_copy["sharpness"] = sharpness if "sharpness" in locals() else None
                 info_copy["crop_dimensions"] = crop_dimensions if "crop_dimensions" in locals() else None
                 info_copy["diagnostic_trace"] = diagnostic_trace if "diagnostic_trace" in locals() else []
+                info_copy["motion_verified"] = False
+                info_copy["verification_status"] = "NOT_VERIFIED"
+                info_copy["vehicles_detected_count"] = len(detected_vehicles) if "detected_vehicles" in locals() else 0
+                if fallback_type == "WRONG_WAY":
+                    info_copy["unverified_reason"] = "Insufficient temporal motion evidence in static photograph. Motion vectors cannot be established without temporal frames."
+                    info_copy["detection_note"] = f"YOLO localized {info_copy['vehicles_detected_count']} vehicle(s). Wrong-way driving cannot be confirmed from a static photo without temporal trajectory evidence. Forwarded for human officer review."
+                else:
+                    info_copy["detection_note"] = photo_ai_note if "photo_ai_note" in locals() and photo_ai_note else "Citizen report forwarded for officer review."
                 rec = _manual_record(
                     db,
                     upload,
@@ -773,8 +886,12 @@ def process_upload(upload: Path, info: Dict[str, Any],
                 "confidence": r.confidence,
                 "claimed": claimed_viol,
                 "auto_classified": True,
+                "motion_verified": True if r.violation_type == "WRONG_WAY" else None,
+                "verification_status": "VERIFIED",
             })
         for m in manual_records:
+            is_unverified_candidate = (m.violation_type == "WRONG_WAY" and m.confidence > 0.0)
+            status_str = "POTENTIAL WRONG-WAY CANDIDATE (UNVERIFIED — PHOTO ONLY)" if is_unverified_candidate else ("NOT_VERIFIED" if m.violation_type == "WRONG_WAY" else "PENDING_REVIEW")
             out.append({
                 "id": m.id,
                 "event_id": m.event_id,
@@ -788,6 +905,8 @@ def process_upload(upload: Path, info: Dict[str, Any],
                 "detection_note": photo_ai_note if "photo_ai_note" in locals() else None,
                 "sharpness": sharpness if "sharpness" in locals() else None,
                 "crop_dimensions": crop_dimensions if "crop_dimensions" in locals() else None,
+                "motion_verified": False,
+                "verification_status": status_str,
             })
 
         total_detected = len(records) + (len(unique_violations) if unique_violations else (1 if photo_ai_conf > 0 else 0))
@@ -802,6 +921,7 @@ def process_upload(upload: Path, info: Dict[str, Any],
             "sharpness": sharpness if "sharpness" in locals() else None,
             "crop_dimensions": crop_dimensions if "crop_dimensions" in locals() else None,
             "diagnostic_trace": diagnostic_trace if "diagnostic_trace" in locals() else [],
+            "error": info.get("processing_error"),
         }
     finally:
         db.close()

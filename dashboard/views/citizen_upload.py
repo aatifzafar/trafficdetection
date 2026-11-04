@@ -83,7 +83,7 @@ def render():
                 location = place.strip() or cam_opts[cam].split(" (")[0]
                 info = {"violation_type": vtype, "plate": plate, "camera_id": cam, "location": location,
                         "when_utc": _local_to_utc(day, tm), "note": note.strip(), "name": name.strip(),
-                        "phone": phone.strip()}
+                        "phone": phone.strip(), "original_name": up.name}
                 bar = st.progress(0.0, "Starting…")
                 result = cs.process_upload(path, info, progress=lambda f, msg: bar.progress(min(f, 1.0), msg))
                 bar.empty()
@@ -91,6 +91,8 @@ def render():
 
         res = st.session_state.get("citizen_result")
         if res:
+            if res.get("error"):
+                st.error(f"⚠️ Detection Pipeline Warning: {res['error']}")
             with ui.panel():
                 st.markdown("### Thank you. Your proof was received.")
                 if len(res.get("records", [])) > 1:
@@ -108,7 +110,20 @@ def render():
                     sharpness_val = r.get("sharpness") or res.get("sharpness")
                     sharp_str = f" · Sharpness: {sharpness_val:.1f}" if sharpness_val is not None else ""
 
-                    if r["auto"]:
+                    if r["type"] == "WRONG_WAY" and (r.get("motion_verified") is False or r["confidence"] == 0.0):
+                        if r.get("confidence", 0.0) > 0.0:
+                            pct = f"{r['confidence'] * 100:.1f}%"
+                            how_html = (
+                                f'<b style="color:#C62828">⚠️ Detected by AI ({pct} confidence)</b><br>'
+                                f'<span style="color:#666;font-size:12px;">Visual heading opposes traffic flow (POTENTIAL WRONG WAY · NOT VERIFIED). '
+                                f'Forwarded for human officer review.</span>'
+                            )
+                        else:
+                            how_html = (
+                                '<span style="color:#D97706;font-weight:700;">⚠️ Vehicle Localized · Motion Not Verified</span><br>'
+                                '<span style="color:#666;font-size:12px;">Static photograph has no temporal motion data. Forwarded for human officer review.</span>'
+                            )
+                    elif r["auto"]:
                         pct = f"{r['confidence'] * 100:.1f}%"
                         if r["type"] == "NO_SEATBELT":
                             how_html = f'<b style="color:#C62828">🚨 AI Detected: NO_SEATBELT ({pct} conf{sharp_str})</b>'

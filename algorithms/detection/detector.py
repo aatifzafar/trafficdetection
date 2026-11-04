@@ -82,6 +82,9 @@ class TrafficDetector:
     """
     Traffic object detector supporting PyTorch GPU/CPU inference,
     custom trained models, and graceful prototype fallback.
+    YOLO strictly handles vehicle and object localization, helmet compliance,
+    and rider count. Kinematic violations (Wrong-Way, Speed) are handled
+    separately via tracking and trajectory analysis.
     """
 
     def __init__(

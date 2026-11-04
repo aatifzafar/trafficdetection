@@ -51,8 +51,46 @@ def _why(viol, meta) -> list:
     elif t == "RED_LIGHT_JUMP":
         lines.append(f"Signal State: Signal confirmed as {extra.get('signal_state', 'RED').upper()} at the exact moment of crossing")
     elif t == "WRONG_WAY":
-        if extra.get("angle_deviation_deg") is not None:
-            lines.append(f"Trajectory Vector: Motion deviated by {extra['angle_deviation_deg']}° from designated corridor angle")
+        is_motion_verified = (
+            extra.get("motion_verified") is True
+            or (viol.source == "CCTV" and extra.get("temporal_confirmed") is True)
+        )
+        v_type = (extra.get("vehicle_type") or "Vehicle").title()
+        lines.append(f"Vehicle Type: {v_type}")
+
+        if is_motion_verified:
+            lines.append("✓ Temporal Status: WRONG WAY VERIFIED (Multi-frame kinematic tracking)")
+            t_id = viol.track_id or extra.get("track_id")
+            if t_id:
+                lines.append(f"Vehicle Tracking ID: Track #{t_id}")
+            if extra.get("motion_direction"):
+                lines.append(f"Movement Direction Vector: {extra['motion_direction']}")
+            elif extra.get("velocity_vector"):
+                lines.append(f"Velocity Vector: dx={extra['velocity_vector'][0]}px, dy={extra['velocity_vector'][1]}px")
+            if extra.get("lane_vector"):
+                lines.append(f"Permitted Lane Direction: {extra['lane_vector']}")
+            if extra.get("angle_deviation_deg") is not None:
+                lines.append(f"Angular Deviation: {extra['angle_deviation_deg']}° (Threshold: ≥120.0°)")
+            if extra.get("confirming_observations"):
+                lines.append(f"Confirming Observations: {extra['confirming_observations']}")
+            if extra.get("dl_model_active"):
+                lines.append("DL Trajectory Classifier: Bi-LSTM temporal sequence confirmed")
+        else:
+            lines.append("Verification Status: POTENTIAL WRONG WAY · NOT VERIFIED · PENDING OFFICER REVIEW")
+            if viol.confidence > 0:
+                lines.append(f"AI Detection Confidence: {int(viol.confidence * 100)}% (Vehicle Localization & Heading Consensus)")
+            lines.append("Visual Evidence: Suspected offending vehicle marked with a prominent RED bounding box; compliant traffic marked in BLUE.")
+            if extra.get("orientation_consensus"):
+                lines.append(f"Carriageway Flow Consensus: {extra['orientation_consensus']}")
+            if extra.get("vehicle_orientation") and extra.get("dominant_flow"):
+                lines.append(f"Vehicle Heading: {extra['vehicle_orientation']} (Opposing permitted flow: {extra['dominant_flow']})")
+            if extra.get("dominant_flow"):
+                lines.append(f"Permitted Direction: {extra['dominant_flow'].replace('_', ' ').title()}")
+            if extra.get("angle_deviation_deg") is not None:
+                lines.append(f"Angular Deviation: {extra['angle_deviation_deg']}° (Opposing orientation)")
+            unver_reason = extra.get("unverified_reason") or "Insufficient temporal motion evidence in static photograph."
+            lines.append(f"Reason: {unver_reason}")
+            lines.append("Legal Notice: A static photograph cannot establish motion vectors. Human officer verification required before issuing notice.")
     elif t == "NO_SEATBELT":
         persp = extra.get("perspective", "AUTO")
         sharp = extra.get("sharpness")
@@ -137,7 +175,7 @@ def render():
             for name, code in FILTERS.items():
                 if code == "CITIZEN" and v.source == "CITIZEN":
                     counts[name] += 1
-                elif code and v.violation_type == code and v.source != "CITIZEN":
+                elif code and v.violation_type == code:
                     counts[name] += 1
 
         # Page Header & Filter Chips
@@ -164,7 +202,7 @@ def render():
             v for v in pending
             if code is None
             or (code == "CITIZEN" and v.source == "CITIZEN")
-            or (v.violation_type == code and v.source != "CITIZEN")
+            or (v.violation_type == code)
         ]
         ids = [v.id for v in items]
 
@@ -241,14 +279,47 @@ def render():
             with ui.panel():
                 h_info, h_nav = st.columns([2.4, 1.2], vertical_alignment="center")
                 with h_info:
-                    conf_color = "#2E7D4F" if viol.confidence >= 0.85 else "#C62828" if viol.confidence < 0.70 else "#E9A400"
+                    extra_data = (meta.get("extra") or {}) if isinstance(meta, dict) else {}
+                    is_ww_unverified = (
+                        viol.violation_type == "WRONG_WAY"
+                        and (
+                            extra_data.get("motion_verified") is False
+                            or (viol.source == "CITIZEN" and (viol.confidence == 0.0 or not extra_data.get("angle_deviation_deg")))
+                        )
+                    )
+                    if is_ww_unverified:
+                        conf_pct = f"{int(viol.confidence * 100)}%"
+                        if viol.confidence > 0:
+                            status_badge = (
+                                f'<span style="font-size:12px;font-weight:700;color:#fff;background:#C62828;padding:3px 8px;border-radius:4px;">'
+                                f'⚠️ POTENTIAL WRONG WAY · NOT VERIFIED · {conf_pct} AI CONFIDENCE</span> '
+                                f'<span style="font-size:12px;font-weight:700;color:#fff;background:#D97706;padding:3px 8px;border-radius:4px;">'
+                                f'PENDING OFFICER REVIEW</span>'
+                            )
+                            case_title = "Wrong-Way Driving Violation (Photo Candidate — Suspect Marked in Red)"
+                        else:
+                            status_badge = (
+                                '<span style="font-size:12px;font-weight:700;color:#fff;background:#D97706;padding:3px 8px;border-radius:4px;">'
+                                '⚠️ WRONG-WAY: NOT VERIFIED (PHOTO ONLY)</span> '
+                                '<span style="font-size:12px;font-weight:700;color:#fff;background:#6B7280;padding:3px 8px;border-radius:4px;">'
+                                'PENDING OFFICER REVIEW</span>'
+                            )
+                            case_title = "Wrong-Way Incident Report (Motion Unverified — Requires Officer Review)"
+                    elif viol.violation_type == "WRONG_WAY":
+                        status_badge = f'<span style="font-size:12px;font-weight:700;color:#fff;background:#2E7D4F;padding:2px 8px;border-radius:4px;">✓ WRONG WAY VERIFIED · {int(viol.confidence * 100)}% AI CONFIDENCE</span>'
+                        case_title = TITLES.get(viol.violation_type, rs.violation_label(viol.violation_type))
+                    else:
+                        conf_color = "#2E7D4F" if viol.confidence >= 0.85 else "#C62828" if viol.confidence < 0.70 else "#E9A400"
+                        status_badge = f'<span style="font-size:12px;font-weight:700;color:#fff;background:{conf_color};padding:2px 8px;border-radius:4px;">{int(viol.confidence * 100)}% AI CONFIDENCE</span>'
+                        case_title = TITLES.get(viol.violation_type, rs.violation_label(viol.violation_type))
+
                     st.markdown(
                         f'<div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap;margin-bottom:2px;">'
                         f'{ui.violation_tag(viol.violation_type, viol.source)}'
-                        f'<span style="font-size:12px;font-weight:700;color:#fff;background:{conf_color};padding:2px 8px;border-radius:4px;">{int(viol.confidence * 100)}% AI CONFIDENCE</span>'
+                        f'{status_badge}'
                         f'<span class="small">Case <b>{pos + 1}</b> of <b>{len(items)}</b> · <code>{ui.esc(viol.event_id)}</code></span>'
                         f'</div>'
-                        f'<div class="rq-title">{ui.esc(TITLES.get(viol.violation_type, rs.violation_label(viol.violation_type)))}</div>'
+                        f'<div class="rq-title">{ui.esc(case_title)}</div>'
                         f'<div class="small">{ui.esc(where(viol, cams))} · <b>{ui.fmt_time(viol.timestamp)}</b> · Track #{viol.track_id or "—"}</div>',
                         unsafe_allow_html=True
                     )
@@ -265,9 +336,14 @@ def render():
                 else:
                     ui.empty("Snapshot Missing", "No evidence image was found on disk for this record.")
 
+                orig_img = meta.get("original_image") or meta.get("upload")
+                if orig_img and Path(orig_img).exists():
+                    with st.expander("📷 View Original Uploaded Photograph (Unannotated)", expanded=False):
+                        st.image(str(orig_img), caption="Original photograph as uploaded by citizen", use_container_width=True)
+
                 if ev.get("video"):
                     with st.expander("📹 Evidence Video Clip (Multi-frame Context)", expanded=False):
-                        st.video(ev["video"])
+                        st.video(ev["video"], key=f"rev_video_{viol.id}")
 
             # Plate Verification & Quick Correction Studio
             with ui.panel():

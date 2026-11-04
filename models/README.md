@@ -2,6 +2,7 @@
 
 | File | Model | Classes | Status |
 |---|---|---|---|
+| `wrong_way_lstm.pt` | **Bi-LSTM + Temporal Attention** (Colab T4, 20 epochs, seed 42) — Deep Learning Trajectory Classifier | 0: COMPLIANT_FLOW, 1: WRONG_WAY | **In use.** Validation F1: 1.000, Acc: 100% |
 | `yolo26n.pt` | YOLO26 nano, pretrained on COCO (Ultralytics, 2026) | car, motorcycle, bus, truck, person, traffic light (and other COCO classes) | In use |
 | `traffic_custom.pt` | **YOLO26n fine-tuned on our merged dataset** (Colab T4, 40 epochs, 640 px, seed 0) — the live helmet / plate model | 0 helmet, 1 no_helmet, 2 number_plate | **In use.** Validation: P 0.865, R 0.889, F1 0.877, mAP50 0.922 |
 | `traffic_custom_yolo26n.pt` | Same file as `traffic_custom.pt` (kept under its model name) | same | Copy |

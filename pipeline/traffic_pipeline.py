@@ -1,5 +1,6 @@
 import os
 import time
+import math
 import json
 import uuid
 import logging
@@ -536,6 +537,21 @@ class TrafficVisionPipeline:
                 2,
             )
 
+        # Draw Allowed Lane Direction Compass Badge (if wrong_way rule is enabled)
+        wrong_way_rule = self.rule_engine.rules.get("wrong_way")
+        if wrong_way_rule:
+            ldx, ldy = wrong_way_rule.lane_vector
+            norm = math.sqrt(ldx * ldx + ldy * ldy)
+            if norm > 1e-4:
+                ndx, ndy = ldx / norm, ldy / norm
+                bx, by = w - 80, 55
+                cv2.circle(frame, (bx, by), 24, (30, 30, 30), -1)
+                cv2.circle(frame, (bx, by), 24, (0, 200, 0), 2)
+                tip = (int(bx + ndx * 16), int(by + ndy * 16))
+                tail = (int(bx - ndx * 12), int(by - ndy * 12))
+                cv2.arrowedLine(frame, tail, tip, (0, 255, 0), 2, tipLength=0.45)
+                cv2.putText(frame, "LANE FLOW", (bx - 36, by + 34), cv2.FONT_HERSHEY_SIMPLEX, 0.36, (0, 255, 0), 1)
+
         # Map track_id to violation types in this frame
         track_violation_map = {}
         for v in violations:
@@ -547,25 +563,49 @@ class TrafficVisionPipeline:
         for obj in tracked_objects:
             x1, y1, x2, y2 = [int(p) for p in obj.bbox]
             is_violating = obj.track_id in track_violation_map
+            v_types = track_violation_map.get(obj.track_id, [])
 
-            # Color scheme: Red for violator, Yellow for person, Amber for vehicles
-            if is_violating:
+            # Draw trajectory path history
+            if len(obj.trajectory) >= 2:
+                for pi in range(1, min(len(obj.trajectory), 12)):
+                    pt1 = (int(obj.trajectory[-pi][0]), int(obj.trajectory[-pi][1]))
+                    pt2 = (int(obj.trajectory[-pi-1][0]), int(obj.trajectory[-pi-1][1]))
+                    trail_color = (0, 0, 255) if (is_violating and "WRONG_WAY" in v_types) else (0, 215, 255)
+                    cv2.line(frame, pt1, pt2, trail_color, 2)
+
+            # Draw Motion Direction Vector Arrow for Wrong-Way Violators
+            if is_violating and "WRONG_WAY" in v_types:
+                vx, vy = obj.get_velocity_vector(window=8)
+                disp = math.sqrt(vx * vx + vy * vy)
+                if disp > 1.0:
+                    cx, cy = int(obj.center[0]), int(obj.center[1])
+                    v_tip = (int(cx + (vx / disp) * 45), int(cy + (vy / disp) * 45))
+                    cv2.arrowedLine(frame, (cx, cy), v_tip, (0, 0, 255), 3, tipLength=0.4)
+                    cv2.putText(frame, "WRONG WAY", (cx - 38, cy - 8), cv2.FONT_HERSHEY_SIMPLEX, 0.48, (0, 0, 255), 2)
+
+            # Color scheme: Red for violator, Yellow for person, Blue for compliant vehicles
+            plate = self.plate_recognizer.get_track_plate(obj.track_id)
+            if is_violating and "WRONG_WAY" in v_types:
                 box_color = (0, 0, 255)
+                label = f"WRONG WAY {int(obj.confidence * 100)}% [ID:{obj.track_id}]"
+                if plate:
+                    label += f" [{plate}]"
+            elif is_violating:
+                box_color = (0, 0, 255)
+                v_names = "/".join(track_violation_map[obj.track_id])
+                label = f"ID:{obj.track_id} {obj.class_name} [{v_names}]"
+                if plate:
+                    label += f" [{plate}]"
             elif obj.class_name == "person":
                 box_color = (0, 215, 255)
+                label = f"ID:{obj.track_id} {obj.class_name} {obj.confidence:.2f}"
             else:
-                box_color = (255, 180, 0)
+                box_color = (255, 180, 0)  # Blue (BGR) for compliant traffic
+                label = f"ID:{obj.track_id} {obj.class_name.upper()} {int(obj.confidence * 100)}%"
+                if plate:
+                    label += f" [{plate}]"
 
             cv2.rectangle(frame, (x1, y1), (x2, y2), box_color, 2)
-
-            # Label overlay
-            plate = self.plate_recognizer.get_track_plate(obj.track_id)
-            label = f"ID:{obj.track_id} {obj.class_name} {obj.confidence:.2f}"
-            if plate:
-                label += f" [{plate}]"
-            if is_violating:
-                v_names = "/".join(track_violation_map[obj.track_id])
-                label += f" [{v_names}]"
 
             # Badge background
             (tw, th), _ = cv2.getTextSize(label, cv2.FONT_HERSHEY_SIMPLEX, 0.48, 1)

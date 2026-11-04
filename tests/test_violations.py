@@ -112,11 +112,21 @@ def test_red_light_stop_line_intersection():
 
 def test_wrong_way_direction_detection():
     # Permitted lane vector: [0, 1] (Downwards)
-    rule = WrongWayViolationRule(lane_vector=[0.0, 1.0], max_angle_deviation_deg=120.0, temporal_window=3, min_positive_frames=1, cooldown_seconds=5.0)
+    rule = WrongWayViolationRule(
+        lane_vector=[0.0, 1.0],
+        max_angle_deviation_deg=120.0,
+        min_displacement_px=15.0,
+        min_trajectory_obs=8,
+        temporal_window=3,
+        min_positive_frames=1,
+        cooldown_seconds=5.0,
+    )
 
     # Vehicle driving backwards (Upwards): dy is negative
     v_wrong = TrackedObject(track_id=88, class_name="car", class_id=2, bbox=[300, 300, 400, 400], confidence=0.88)
     v_wrong.trajectory = [
+        [350.0, 440.0],
+        [350.0, 420.0],
         [350.0, 400.0],
         [350.0, 380.0],
         [350.0, 360.0],
