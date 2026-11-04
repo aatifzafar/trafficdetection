@@ -36,6 +36,7 @@ def render():
     trk0 = (cfg.get("tracking") or {}).get("algorithm", settings.TRACKER_ALGO)
     model0 = mr.key_for_path((cfg.get("detection") or {}).get("model_traffic", settings.MODEL_TRAFFIC))
     sl0 = (cfg.get("cameras") or {}).get("default_stop_line") or {"x1": 150, "y1": 520, "x2": 1100, "y2": 520}
+    sb_model_path = Path(getattr(settings, "MODEL_SEATBELT", "models/seatbelt_best.pt"))
 
     left, right = st.columns([1, 1.25], gap="medium")
     with left:
@@ -52,10 +53,12 @@ def render():
                                format_func=lambda t: {"bytetrack": "ByteTrack (recommended)", "deepsort": "DeepSORT"}[t])
             st.markdown(f'<dl class="kv"><dt>Plate reader</dt><dd>{ui.esc(settings.OCR_ENGINE)}</dd>'
                         f'<dt>Device</dt><dd>{ui.esc(settings.DEVICE)}</dd>'
-                        f'<dt>Model file</dt><dd>{ui.esc(mr.path(model_key))}'
+                        f'<dt>Traffic model</dt><dd>{ui.esc(mr.path(model_key))}'
                         f'{"" if mr.is_downloaded(model_key) else " (downloads on first use)"}</dd>'
                         f'<dt>Helmet / plate model</dt><dd>{ui.esc(Path(settings.MODEL_CUSTOM).name)}'
-                        f'{"" if Path(settings.MODEL_CUSTOM).exists() else " (not trained yet)"}</dd></dl>',
+                        f'{"" if Path(settings.MODEL_CUSTOM).exists() else " (not trained yet)"}</dd>'
+                        f'<dt>Seatbelt model</dt><dd>{ui.esc(sb_model_path.name)}'
+                        f'{" (active)" if sb_model_path.exists() else " (standby)"}</dd></dl>',
                         unsafe_allow_html=True)
         with ui.panel():
             st.markdown("### Default stop line")

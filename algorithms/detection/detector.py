@@ -67,7 +67,15 @@ class DetectionResult:
         }
 
 
-TRIPLE_MODEL_KEEP = {"MORE_THAN_TWO_PERSONS", "USING_MOBILE"}
+TRIPLE_MODEL_KEEP = {
+    "MORE_THAN_TWO_PERSONS",
+    "USING_MOBILE",
+    "WITHOUT_HELMET",
+    "WITH_HELMET",
+    "NO_HELMET",
+    "HELMET",
+    "TRIPLE_RIDING",
+}
 
 
 class TrafficDetector:
@@ -132,7 +140,7 @@ class TrafficDetector:
 
         # Legacy custom models support / aliases for backwards compatibility
         self.helmet_model = self.model_custom
-        self.has_custom_helmet_model = self.has_custom_model
+        self.has_custom_helmet_model = self.has_custom_model or (self.model_triple is not None)
         self.plate_model = self.model_custom
         self.has_custom_plate_model = self.has_custom_model
 
@@ -231,14 +239,16 @@ class TrafficDetector:
                     for box in t_res[0].boxes:
                         cls_id = int(box.cls[0].cpu().numpy())
                         cls_name = t_names.get(cls_id, str(cls_id)) if isinstance(t_names, dict) else str(cls_id)
-                        if str(cls_name).upper() not in TRIPLE_MODEL_KEEP:
+                        cname_upper = str(cls_name).upper()
+                        if cname_upper not in TRIPLE_MODEL_KEEP:
                             continue
+                        norm_name = ('no_helmet' if cname_upper in {'WITHOUT_HELMET', 'NO_HELMET'} else 'helmet' if cname_upper in {'WITH_HELMET', 'HELMET'} else 'MORE_THAN_TWO_PERSONS' if cname_upper in {'MORE_THAN_TWO_PERSONS', 'TRIPLE_RIDING', 'TRIPLE_RIDER'} else 'USING_MOBILE' if cname_upper in {'USING_MOBILE', 'MOBILE_PHONE'} else cls_name)
                         detections.append(
                             DetectionResult(
                                 bbox=box.xyxy[0].cpu().numpy().tolist(),
                                 confidence=float(box.conf[0].cpu().numpy()),
                                 class_id=100 + cls_id,
-                                class_name=cls_name,
+                                class_name=norm_name,
                             )
                         )
             except Exception as e:

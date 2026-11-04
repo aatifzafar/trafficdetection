@@ -53,14 +53,14 @@ SIZE_NAMES = {"n": "nano", "s": "small", "m": "medium", "nu": "nano", "su": "sma
 
 MODELS: Dict[str, Dict] = {}
 for key, fam, size, m, cpu, gpu, hw, params, flops in _TABLE:
-    short = f"{fam}{size}" if fam != "YOLOv10" else f"YOLOv10{size}"
+    short_name = f"{fam}{size}" if fam != "YOLOv10" else f"YOLOv10{size}"
     MODELS[key] = {
         "path": f"models/{key}.pt",
         "family": fam,
         "size": SIZE_NAMES[size],
         "year": FAMILIES[fam]["year"],
-        "short": short,
-        "label": f"{short} ({FAMILIES[fam]['year']}, {SIZE_NAMES[size]})",
+        "short": short_name,
+        "label": f"{short_name} ({FAMILIES[fam]['year']}, {SIZE_NAMES[size]})",
         "published": {"mAP50_95": m, "cpu_onnx_ms": cpu, "gpu_ms": gpu, "gpu_hw": hw, "params_m": params, "flops_b": flops},
         "note": FAMILIES[fam]["note"],
         "source": SOURCES[fam],
@@ -91,6 +91,8 @@ def short(key_or_path: str) -> str:
     k = key_for_path(key_or_path)
     if "yolo26n_v2_832" in k:
         return "YOLO26n v2 (832 px, 80 ep)"
+    if "seatbelt" in k:
+        return "YOLO26n (Seatbelt)"
     return MODELS[k]["short"] if k in MODELS else Path(str(key_or_path)).stem
 
 

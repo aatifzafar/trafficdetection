@@ -33,6 +33,7 @@ This project delivers a **production-structured, real-time AI computer vision sy
 | 4 | **Wrong-Way Driving** | `WRONG_WAY` | Trajectory centroid vector angle deviation ($> 120^\circ$) against permitted lane | **Completed** |
 | 5 | **Illegal Parking / Prohibited Stopping** | `ILLEGAL_PARKING` | Stationary vehicle dwell-time tracking inside restricted polygon zones ($> T$ sec) | **TODO (Next)** |
 | 6 | **Unsafe Vehicle Movement / Rash Driving** | `UNSAFE_MOVEMENT` | Pixel-to-meter velocity estimation ($v > v_{limit}$) & erratic zigzag trajectory tracking | **TODO (Next)** |
+| 7 | **Driving Without Seatbelt** | `NO_SEATBELT` | Two-stage windshield ROI crop + fine-tuned YOLO detector + multi-frame voting | **Completed (Experimental)** |
 | + | **Driver Mobile Phone Usage** | `MOBILE_PHONE_WHILE_DRIVING` | Direct visual detection using fine-tuned `USING_MOBILE` class (**71.5% mAP50**) | **Completed** |
 
 ---
@@ -138,6 +139,8 @@ trafficdetection/
 
 ## 4. Trained Custom Model Metrics
 
+### 4.1 Multi-Violation Model (models/traffic_custom.pt)
+
 The custom violation model (`models/traffic_custom.pt`) was trained on **Google Colab (Tesla T4 GPU)** using a curated dataset of **6,057 images** (`kashish/3riders v2`):
 
 | Class | Precision ($P$) | Recall ($R$) | $\text{mAP}_{50}$ | $\text{mAP}_{50-95}$ | Primary Violation Mapped |
@@ -151,6 +154,24 @@ The custom violation model (`models/traffic_custom.pt`) was trained on **Google 
 
 - **Inference Speed:** **3.9 ms** per frame on GPU (~256 FPS), **~52 ms** on local CPU (~19 FPS).
 - **Model Size:** 73 layers, 3.13M parameters, 8.6 GFLOPs.
+
+### 4.2 Seatbelt Violation Model (models/seatbelt_best.pt)
+
+The seatbelt detector is a custom-trained **YOLO26n** architecture trained on Google Colab (Tesla T4 GPU) across aggregated research datasets.
+
+**Official Held-Out Test Split Evaluation Metrics:**
+
+| Class / Category | Precision ($) | Recall ($) | $\text{mAP}_{50}$ | $\text{mAP}_{50-95}$ | Primary Violation Mapped |
+| :--- | :---: | :---: | :---: | :---: | :--- |
+| **seatbelt** (Class 0) | **0.865** | **0.679** | **0.732** | 0.362 | Compliant Seatbelt Fastened |
+| **
+o_seatbelt** (Class 1) | **0.798** | **0.432** | **0.459** | 0.210 | **No Seatbelt Violation** (NO_SEATBELT) |
+| **All Classes (Mean)** | **0.832** | **0.556** | **0.595** | **0.286** | Unified Test Benchmark |
+
+- **Model Artifact:** models/seatbelt_best.pt (5.45 MB, 140 layers, 2.39M parameters).
+- **Inference Latency:** **~4.8 ms** per ROI crop on GPU, **~42 ms** on local CPU.
+- **Architectural Safeguards:** High precision (83.2% overall, 79.8% on violation class) ensures that generated violations have high fidelity. Lower recall (43.2% on 
+o_seatbelt) under difficult optical conditions is intentionally addressed by requiring clear windshield visibility (Laplacian sharpness $\ge 30.0$, crop size $\ge 90\times 90$ px) and multi-frame temporal voting (6 of 10 sliding frames) before raising a violation. Every detection is routed to the Officer Review Console for human validation.
 
 ---
 
@@ -172,16 +193,39 @@ The custom violation model (`models/traffic_custom.pt`) was trained on **Google 
 ## 6. Installation & Quickstart
 
 ### 1. Clone & Set Up Environment
+
+#### Windows (PowerShell) Setup
+```powershell
+# 1. Clone repository
+git clone https://github.com/aatifzafar/trafficdetection.git
+cd trafficdetection
+
+# 2. Allow local script execution (if virtualenv activation is restricted)
+Set-ExecutionPolicy -Scope Process -ExecutionPolicy Bypass
+
+# 3. Create virtual environment
+python -m venv .venv
+
+# 4. Activate virtual environment
+.venv\Scripts\Activate.ps1
+
+# 5. Upgrade pip and install dependencies
+python -m pip install --upgrade pip
+pip install -r requirements.txt
+
+# (Optional) For NVIDIA GPU CUDA acceleration:
+# pip install torch torchvision --index-url https://download.pytorch.org/whl/cu124
+```
+
+#### Linux / macOS Setup
 ```bash
 git clone https://github.com/aatifzafar/trafficdetection.git
 cd trafficdetection
 
-# Create and activate virtual environment
-python -m venv .venv
-.venv\Scripts\activate   # On Windows
-# source .venv/bin/activate  # On Linux/macOS
+python3 -m venv .venv
+source .venv/bin/activate
 
-# Install dependencies
+python -m pip install --upgrade pip
 pip install -r requirements.txt
 ```
 
@@ -219,7 +263,39 @@ python scripts/run_video.py --video data/videos/22.mp4 --signal AUTO --save-scre
 ```bash
 python -m pytest tests
 ```
-All 20 automated test suites execute against an isolated test database.
+All 31 automated test suites execute against an isolated test database.
+
+### Option E: Seatbelt Violation Detection (Training, Evaluation & Testing)
+
+1. **Build Unified Dataset:**
+   ```bash
+   python scripts/build_seatbelt_dataset.py
+   ```
+   Deduplicates 3 public research sources, enforces strict perceptual dHash zero cross-split leakage, and outputs `data/seatbelt/data.yaml`.
+
+2. **Train Model:**
+   - **Local GPU:**
+     ```bash
+     python scripts/train_seatbelt.py --epochs 50 --batch 16 --imgsz 640
+     ```
+   - **Free Google Colab T4 GPU:**
+     Open `notebooks/train_seatbelt_colab.ipynb` in Google Colab, upload `data/seatbelt_dataset.zip`, run all cells with 1 click, and download `seatbelt_best.pt` into `models/`.
+
+3. **Evaluate on Validation & Held-Out Test Splits:**
+   ```bash
+   python scripts/evaluate_seatbelt.py --model models/seatbelt_best.pt
+   ```
+   Writes precision, recall, mAP50, and limitations dossier to `data/evaluation_results_seatbelt.json`.
+
+4. **Launch Seatbelt AI Lab Dashboard:**
+   ```bash
+   streamlit run dashboard/app.py
+   ```
+   Navigate to the **Seatbelt Lab** page to upload single images or a ZIP archive (up to 3,000 images) or browse the curated held-out test samples (`data/seatbelt/test_samples/`), inspect color-coded bounding boxes, filter by violations, and download audit CSVs.
+
+5. **FastAPI Endpoints:**
+   - `POST /api/seatbelt/detect`: Upload windshield image for inference.
+   - `GET /api/seatbelt/metrics`: Retrieve measured precision, recall, and CCTV operational limitations.
 
 ---
 
@@ -463,6 +539,9 @@ The following tasks represent the active development roadmap toward the final pr
 - **Night & Rain Conditions:** Reduced detection confidence under heavy headlight glare or nighttime low-light conditions.
 - **Oblique Angles:** Highly acute angles may occlude helmets or plate characters, relying on temporal tracking voting.
 - **Camera Calibration:** Stop-lines, lane direction vectors, and signal areas are calibrated per fixed camera junction.
+- **Seatbelt Optical Challenges:**
+  - Heavily tinted windshields, interior cabin shadow, and oblique angle perspectives reduce visual contrast of seatbelt webbing.
+  - Mitigated via our two-stage perspective engine, optical gatekeepers (Laplacian sharpness $\ge 30.0$, crop size $\ge 90\times 90$ px), 6-of-10 sliding frame temporal voting, and mandatory Officer Review queue verification before fine issuance.
 
 ### Future Scope
 - Automated perspective vanishing-point and stop-line calibration.

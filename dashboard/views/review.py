@@ -15,9 +15,11 @@ TITLES = {
     "TRIPLE_RIDING": "Triple Riding (More than 2 Persons on Two-Wheeler)",
     "RED_LIGHT_JUMP": "Signal Disobedience (Crossed Virtual Stop Line on Red)",
     "WRONG_WAY": "One-Way Corridor Violation (Moving Against Allowed Vector)",
+    "NO_SEATBELT": "Driver/Passenger Without Seatbelt (Cabin Compliance)",
 }
 FILTERS = {
     "All": None,
+    "No seatbelt": "NO_SEATBELT",
     "No helmet": "NO_HELMET",
     "Triple riding": "TRIPLE_RIDING",
     "Red light": "RED_LIGHT_JUMP",
@@ -51,6 +53,25 @@ def _why(viol, meta) -> list:
     elif t == "WRONG_WAY":
         if extra.get("angle_deviation_deg") is not None:
             lines.append(f"Trajectory Vector: Motion deviated by {extra['angle_deviation_deg']}° from designated corridor angle")
+    elif t == "NO_SEATBELT":
+        persp = extra.get("perspective", "AUTO")
+        sharp = extra.get("sharpness")
+        roi_mode = extra.get("roi_mode", "windshield")
+        crop_dim = extra.get("crop_dimensions")
+        diag_trace = extra.get("diagnostic_trace", [])
+        lines.append(f"Camera Perspective: {persp} perspective analysis ({roi_mode.replace('_', ' ')})")
+        if sharp is not None:
+            lines.append(f"Cabin Optical Sharpness: Laplacian variance {sharp} (passes optical threshold >= 15.0)")
+        if crop_dim:
+            lines.append(f"Inspection Resolution: Cabin crop {crop_dim[0]}×{crop_dim[1]}px")
+        if diag_trace:
+            top_diag = diag_trace[-1]
+            lines.append(f"Diagnostic ROI: Mode '{top_diag.get('mode')}', Model class '{top_diag.get('class_name')}' at {int(top_diag.get('confidence', 0)*100)}% confidence")
+        if viol.source != "CITIZEN":
+            lines.append("Temporal Confirmation: Missing seatbelt confirmed across multi-frame sliding window (>= 6 of 10 frames)")
+        lines.append("Compliance Safeguard: Marked as EXPERIMENTAL requiring mandatory officer verification")
+        if extra.get("limitations_note"):
+            lines.append(f"Advisory: {extra['limitations_note']}")
     if extra.get("light"):
         lines.append("Ambient Lighting: " + ("Night / Low-light illumination" if extra["light"] == "night" else "Daylight CCTV illumination"))
     concurrent = [c for c in extra.get("concurrent_violations", []) if c != viol.violation_type]
@@ -246,7 +267,7 @@ def render():
 
                 if ev.get("video"):
                     with st.expander("📹 Evidence Video Clip (Multi-frame Context)", expanded=False):
-                        st.video(ev["video"], key=f"rev_video_{rec.get('id', 0)}")
+                        st.video(ev["video"])
 
             # Plate Verification & Quick Correction Studio
             with ui.panel():

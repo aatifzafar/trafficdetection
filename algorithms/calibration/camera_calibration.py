@@ -1,5 +1,5 @@
 """
-Per-camera calibration (stop line, lane direction, signal-light area, rule switches)
+Per-camera calibration (stop line, lane direction, signal-light area, rule switches, perspective)
 and small helpers the pipeline uses with it.
 
 Calibration is written by the dashboard's Camera setup page to data/camera_calibration.yaml
@@ -16,7 +16,7 @@ import yaml
 
 from backend.config.settings import CONFIG_PATH
 
-RULE_KEYS = ["helmet", "triple_riding", "red_light", "wrong_way"]
+RULE_KEYS = ["helmet", "triple_riding", "red_light", "wrong_way", "seatbelt"]
 CALIBRATION_PATH = Path("data/camera_calibration.yaml")
 APP_SETTINGS_PATH = Path("data/app_settings.yaml")   # written by the dashboard's Settings page
 TRACKERS = ["bytetrack", "deepsort"]
@@ -110,6 +110,10 @@ def config_for_camera(base_cfg: Dict[str, Any], camera_id: Optional[int]) -> Dic
         cams["default_stop_line"] = cal["stop_line"]
     if cal.get("lane_direction"):
         cams["default_lane_direction"] = cal["lane_direction"]
+    if cal.get("perspective"):
+        cams["default_perspective"] = cal["perspective"]
+    if cal.get("seatbelt_perspective"):
+        cams["seatbelt_perspective"] = cal["seatbelt_perspective"]
     cfg["cameras"] = cams
     rules = cal.get("rules") or {}
     if rules:

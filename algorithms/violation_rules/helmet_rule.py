@@ -47,6 +47,7 @@ class HelmetViolationRule(BaseViolationRule):
             and (
                 getattr(detector, "has_custom_model", False)
                 or getattr(detector, "has_custom_helmet_model", False)
+                or getattr(detector, "model_triple", None) is not None
             )
         )
         if not has_custom and not self.allow_baseline:
@@ -84,18 +85,20 @@ class HelmetViolationRule(BaseViolationRule):
                 mode = "CUSTOM_MODEL" if has_custom else "BASELINE_HEURISTIC"
 
                 if has_custom:
-                    # Top 35% of rider's bounding box
-                    head_y_max = ry1 + 0.35 * rider_h
+                    # Top region of rider's bounding box (generous margin for top of head)
+                    rw = rx2 - rx1
+                    head_y_min = ry1 - 0.20 * rider_h
+                    head_y_max = ry1 + 0.40 * rider_h
+                    head_x_min = rx1 - 0.15 * rw
+                    head_x_max = rx2 + 0.15 * rw
 
-                    # Check for no_helmet box centre inside top 35%
                     matching_no_helmet = [
                         c for c in no_helmet_centres
-                        if rx1 <= c[0] <= rx2 and ry1 <= c[1] <= head_y_max
+                        if head_x_min <= c[0] <= head_x_max and head_y_min <= c[1] <= head_y_max
                     ]
-                    # Check for helmet box centre inside top 35%
                     matching_helmet = [
                         c for c in helmet_centres
-                        if rx1 <= c[0] <= rx2 and ry1 <= c[1] <= head_y_max
+                        if head_x_min <= c[0] <= head_x_max and head_y_min <= c[1] <= head_y_max
                     ]
 
                     if matching_no_helmet:

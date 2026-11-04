@@ -240,7 +240,7 @@ def _render_camera_cards_wall(raw_cams):
 
                 if feed_mode == "▶️ Live Video Motion" and is_video_file:
                     # Autoplaying looping genuine CCTV video footage
-                    st.video(src, format="video/mp4", loop=True, autoplay=True, muted=True, key=f"cam_video_{c.id}")
+                    st.video(src, format="video/mp4", loop=True, autoplay=True, muted=True)
                 else:
                     # Snapshot fallback
                     frame = cameras_setup._grab_frame(src)

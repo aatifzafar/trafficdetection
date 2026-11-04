@@ -17,9 +17,10 @@ import re
 import shutil
 import uuid
 from pathlib import Path
-from typing import Any, Callable, Dict, List, Optional
+from typing import Any, Callable, Dict, List, Optional, Tuple
 
 import cv2
+import numpy as np
 
 from backend.config.settings import settings
 from backend.database.database import SessionLocal, ensure_schema
@@ -33,6 +34,423 @@ PHOTO_TYPES = {".jpg", ".jpeg", ".png"}
 MAX_FRAMES = 900  # about 30 s of video at 30 fps; longer clips are cut to keep processing quick on a CPU
 PLATE_RE = re.compile(r"[^A-Z0-9]")
 
+
+TWO_WHEELER_CLASSES = {"motorcycle", "motorbike", "scooter", "moped", "bicycle"}
+FOUR_WHEELER_CLASSES = {"car", "truck", "bus", "van", "suv"}
+
+_SEATBELT_MODEL = None
+
+
+def _get_seatbelt_model():
+    """Caches and returns the trained seatbelt model (models/seatbelt_best.pt)."""
+    global _SEATBELT_MODEL
+    if _SEATBELT_MODEL is None:
+        p = Path("models/seatbelt_best.pt")
+        if p.exists() and p.is_file():
+            try:
+                from ultralytics import YOLO
+                _SEATBELT_MODEL = YOLO(str(p))
+                logger.info("Citizen service loaded seatbelt model (models/seatbelt_best.pt)")
+            except Exception as e:
+                logger.warning(f"Could not load seatbelt model in citizen service: {e}")
+    return _SEATBELT_MODEL
+
+
+def classify_citizen_photo(img: np.ndarray, claimed_viol: Optional[str] = None) -> Dict[str, Any]:
+    """
+    Vehicle-type-aware AI classification for citizen proof photos:
+    1. Four-wheelers (car, truck, bus, van, suv):
+       - Refined candidate crops:
+         a) Occupant full torso (from head down to lap/waist)
+         b) Driver-side window / cabin focus
+         c) Central windshield (from roofline down to hood)
+         d) Full vehicle crop (vehicle context)
+       - Evaluates models/seatbelt_best.pt at conf=0.25 (optical sharpness threshold >= 15.0).
+       - Class 0 ('seatbelt'): Compliant (is_bad=False). Zero violation generated!
+       - Class 1 ('no_seatbelt'): Confirmed NO_SEATBELT violation (is_bad=True).
+       - Strictly SUPPRESSES helmet and triple-riding rules.
+    2. Two-wheelers (motorcycle, scooter, etc.):
+       - Evaluates helmet compliance and triple-riding spatially linked to the two-wheeler.
+       - Strictly SUPPRESSES seatbelt rules.
+    3. Close-up / Cropped Windshield:
+       - Evaluates seatbelt model if optical sharpness and resolution criteria are met.
+       - Never applies helmet rules without a two-wheeler present.
+    4. Inconclusive / Low Visibility:
+       - If blurred, low-res, or confidence < 0.25, returns INCONCLUSIVE with diagnostic trace.
+       - Never invents a violation.
+    """
+    from algorithms.detection.detector import TrafficDetector
+
+    h_img, w_img = img.shape[:2]
+    logger.info(f"Analyzing citizen photo: original_size={w_img}x{h_img}, claimed={claimed_viol}")
+    detector = TrafficDetector(confidence=0.18)
+    dets = detector.detect(img)
+
+    four_wheelers = [d for d in dets if d.class_name.lower() in FOUR_WHEELER_CLASSES]
+    two_wheelers = [d for d in dets if d.class_name.lower() in TWO_WHEELER_CLASSES]
+    persons = [d for d in dets if d.class_name.lower() == "person"]
+
+    violation_candidates: List[Dict[str, Any]] = []
+    box_draw_list: List[Tuple[List[float], str, float, bool]] = []
+    compliance_notes: List[str] = []
+    diagnostic_trace: List[Dict[str, Any]] = []
+
+    is_four_wheeler = len(four_wheelers) > 0
+    is_two_wheeler = len(two_wheelers) > 0
+    compliance_status = "INCONCLUSIVE"
+    best_sharpness = 0.0
+    best_crop_dims = None
+
+    # -------------------------------------------------------------
+    # 1. FOUR-WHEELER ROUTING (Seatbelt + In-Car Phone, NO HELMET)
+    # -------------------------------------------------------------
+    if is_four_wheeler:
+        logger.info(f"Four-wheeler detected ({len(four_wheelers)} vehicle(s)). Strictly suppressing helmet rules.")
+        sb_model = _get_seatbelt_model()
+        if sb_model is not None:
+            sorted_fw = sorted(four_wheelers, key=lambda f: (f.bbox[2]-f.bbox[0])*(f.bbox[3]-f.bbox[1]), reverse=True)
+            primary_area = (sorted_fw[0].bbox[2]-sorted_fw[0].bbox[0]) * (sorted_fw[0].bbox[3]-sorted_fw[0].bbox[1])
+            target_fw = [f for f in sorted_fw if ((f.bbox[2]-f.bbox[0])*(f.bbox[3]-f.bbox[1])) >= 0.15 * primary_area]
+            for fw in target_fw:
+                vx1, vy1, vx2, vy2 = [int(c) for c in fw.bbox]
+                vw = max(1, vx2 - vx1)
+                vh = max(1, vy2 - vy1)
+                logger.info(f"Primary four-wheeler bbox=[{vx1}, {vy1}, {vx2}, {vy2}], size={vw}x{vh}")
+
+                candidate_crops = []
+
+                # Find visible occupants inside vehicle cabin
+                cabin_occupants = []
+                for p in persons:
+                    px1, py1, px2, py2 = [int(c) for c in p.bbox]
+                    pcx = (px1 + px2) // 2
+                    pcy = (py1 + py2) // 2
+                    if vx1 <= pcx <= vx2 and vy1 <= pcy <= (vy1 + int(vh * 0.75)):
+                        cabin_occupants.append(p)
+
+                # Prioritize occupant-anchored upper torso crops (identical to SeatbeltViolationRule)
+                if cabin_occupants:
+                    for p in cabin_occupants:
+                        px1, py1, px2, py2 = [int(c) for c in p.bbox]
+                        pw = max(1, px2 - px1)
+                        ph = max(1, py2 - py1)
+                        cx1 = max(0, min(w_img - 1, px1 - int(pw * 0.15)))
+                        cx2 = max(0, min(w_img, px2 + int(pw * 0.15)))
+                        cy1 = max(0, min(h_img - 1, py1))
+                        cy2 = max(0, min(h_img, py1 + int(ph * 0.85)))
+                        crop = img[cy1:cy2, cx1:cx2]
+                        if crop.size > 0:
+                            candidate_crops.append((crop, [cx1, cy1, cx2, cy2], "occupant_anchor", p.bbox))
+                else:
+                    # Geometric front windshield / side window ONLY when no occupants detected
+                    aspect = float(vw) / float(vh)
+                    if aspect > 1.35:  # SIDE
+                        cx1 = max(0, min(w_img - 1, vx1 + int(vw * 0.18)))
+                        cx2 = max(0, min(w_img, vx1 + int(vw * 0.72)))
+                        cy1 = max(0, min(h_img - 1, vy1 + int(vh * 0.08)))
+                        cy2 = max(0, min(h_img, vy1 + int(vh * 0.55)))
+                        mode = "side_window"
+                    else:  # FRONT
+                        cx1 = max(0, min(w_img - 1, vx1 + int(vw * 0.15)))
+                        cx2 = max(0, min(w_img, vx1 + int(vw * 0.85)))
+                        cy1 = max(0, min(h_img - 1, vy1 + int(vh * 0.12)))
+                        cy2 = max(0, min(h_img, vy1 + int(vh * 0.60)))
+                        mode = "front_windshield"
+                    crop_geom = img[cy1:cy2, cx1:cx2]
+                    if crop_geom.size > 0:
+                        candidate_crops.append((crop_geom, [cx1, cy1, cx2, cy2], mode, None))
+
+                # Evaluate candidate cabin crops
+                best_sb_conf = 0.0
+                best_ns_conf = 0.0
+                best_sb_box = None
+                best_ns_box = None
+
+                for c_img, offset, mode, pbox in candidate_crops:
+                    ch, cw = c_img.shape[:2]
+                    if cw < 60 or ch < 60:
+                        logger.debug(f"ROI [{mode}] rejected: resolution {cw}x{ch} < 60x60")
+                        continue
+                    gray = cv2.cvtColor(c_img, cv2.COLOR_BGR2GRAY)
+                    sharpness = cv2.Laplacian(gray, cv2.CV_64F).var()
+                    if sharpness < 15.0:
+                        logger.debug(f"ROI [{mode}] rejected: sharpness {sharpness:.1f} < 15.0")
+                        continue
+
+                    try:
+                        res = sb_model(c_img, conf=0.20, verbose=False)
+                        if res and len(res[0].boxes) > 0:
+                            for b in res[0].boxes:
+                                cid = int(b.cls[0].item())
+                                conf = float(b.conf[0].item())
+                                cname = sb_model.names.get(cid, str(cid))
+                                bx1, by1, bx2, by2 = [float(x) for x in b.xyxy[0].cpu().numpy().tolist()]
+                                bw = bx2 - bx1
+                                bh = by2 - by1
+
+                                # Reject flat horizontal boxes (dashboard, wiper cowl, bumper lines)
+                                if bw > 2.5 * bh:
+                                    continue
+
+                                gbox = [offset[0] + bx1, offset[1] + by1, offset[0] + bx2, offset[1] + by2]
+
+                                # Spatial grounding: ensure detection center is aligned with occupant chest
+                                if pbox is not None:
+                                    chest_top = pbox[1]
+                                    chest_bottom = pbox[1] + 0.85 * (pbox[3] - pbox[1])
+                                    bcy = (gbox[1] + gbox[3]) / 2
+                                    if not (chest_top - 20 <= bcy <= chest_bottom + 40):
+                                        continue
+
+                                diagnostic_trace.append({
+                                    "mode": mode,
+                                    "class_id": cid,
+                                    "class_name": cname,
+                                    "confidence": round(conf, 3),
+                                    "sharpness": round(sharpness, 1),
+                                    "crop_size": [cw, ch],
+                                    "roi_coords": offset,
+                                })
+                                logger.info(
+                                    f"Seatbelt ROI [{mode}] {cw}x{ch}px (sharpness {sharpness:.1f}): "
+                                    f"{cname} ({cid}) conf={conf:.3f} gbox={[round(x,1) for x in gbox]}"
+                                )
+                                if cid == 0:  # seatbelt
+                                    if conf > best_sb_conf:
+                                        best_sb_conf = conf
+                                        best_sb_box = gbox
+                                        best_crop_dims = [cw, ch]
+                                        best_sharpness = sharpness
+                                elif cid == 1:  # no_seatbelt
+                                    if conf > best_ns_conf:
+                                        best_ns_conf = conf
+                                        best_ns_box = gbox
+                                        best_crop_dims = [cw, ch]
+                                        best_sharpness = sharpness
+                    except Exception as e:
+                        logger.debug(f"Seatbelt inference error on {mode}: {e}")
+
+                # Decision at confidence threshold 0.35 (consistent with SeatbeltViolationRule):
+                CONF_THRESH = 0.35
+                if best_sb_conf >= CONF_THRESH and best_sb_conf >= best_ns_conf:
+                    box_draw_list.append((best_sb_box, "SEATBELT", best_sb_conf, False))
+                    compliance_notes.append(f"Occupant verified wearing SEATBELT ({int(best_sb_conf*100)}% conf)")
+                    compliance_status = "SEATBELT_COMPLIANT"
+                elif best_ns_conf >= CONF_THRESH:
+                    box_draw_list.append((best_ns_box, "NO SEATBELT", best_ns_conf, True))
+                    violation_candidates.append({
+                        "type": "NO_SEATBELT",
+                        "confidence": best_ns_conf,
+                        "bbox": best_ns_box,
+                        "class": "NO_SEATBELT",
+                        "sharpness": round(best_sharpness, 1),
+                        "crop_dimensions": best_crop_dims,
+                        "diagnostic_trace": diagnostic_trace,
+                    })
+                    compliance_status = "NO_SEATBELT_VIOLATION"
+                else:
+                    compliance_status = "INCONCLUSIVE"
+
+        # Check phone usage inside car
+        for d in dets:
+            cname = d.class_name.upper().replace(" ", "_")
+            if cname in {"USING_MOBILE", "MOBILE_PHONE"}:
+                dcx, dcy = d.center
+                for fw in four_wheelers:
+                    if fw.bbox[0] <= dcx <= fw.bbox[2] and fw.bbox[1] <= dcy <= fw.bbox[3]:
+                        box_draw_list.append((d.bbox, "PHONE USAGE", d.confidence, True))
+                        violation_candidates.append({
+                            "type": "MOBILE_PHONE_WHILE_DRIVING",
+                            "confidence": d.confidence,
+                            "bbox": d.bbox,
+                            "class": cname,
+                        })
+
+    # -------------------------------------------------------------
+    # 2. TWO-WHEELER ROUTING (Helmet + Triple Riding, NO SEATBELT)
+    # -------------------------------------------------------------
+    if is_two_wheeler:
+        logger.info(f"Two-wheeler detected ({len(two_wheelers)} bike(s)). Strictly suppressing seatbelt rules.")
+        for tw in two_wheelers:
+            tx1, ty1, tx2, ty2 = tw.bbox
+            tw_w = max(1.0, tx2 - tx1)
+            tw_h = max(1.0, ty2 - ty1)
+
+            # Heuristic person clustering for triple riding on this two-wheeler
+            riders_on_bike = []
+            for p in persons:
+                pcx, pcy = p.center
+                if (tx1 - 0.35 * tw_w <= pcx <= tx2 + 0.35 * tw_w) and (p.bbox[1] <= ty2 and p.bbox[3] >= ty1 - 0.25 * tw_h):
+                    riders_on_bike.append(p)
+            if len(riders_on_bike) >= 3:
+                box_draw_list.append((tw.bbox, f"TRIPLE RIDING ({len(riders_on_bike)} riders)", 0.90, True))
+                violation_candidates.append({
+                    "type": "TRIPLE_RIDING",
+                    "confidence": 0.88,
+                    "bbox": tw.bbox,
+                    "class": "MORE_THAN_TWO_PERSONS",
+                    "rider_count": len(riders_on_bike),
+                })
+
+            for d in dets:
+                cname = d.class_name.upper().replace(" ", "_")
+                dcx, dcy = d.center
+                is_spatial = (
+                    (tx1 - 0.35 * tw_w) <= dcx <= (tx2 + 0.35 * tw_w)
+                    and (ty1 - 1.20 * tw_h) <= dcy <= (ty2 + 0.35 * tw_h)
+                )
+                if not is_spatial:
+                    continue
+
+                if cname in {"WITHOUT_HELMET", "NO_HELMET"}:
+                    box_draw_list.append((d.bbox, "NO HELMET", d.confidence, True))
+                    violation_candidates.append({
+                        "type": "NO_HELMET",
+                        "confidence": d.confidence,
+                        "bbox": d.bbox,
+                        "class": cname,
+                    })
+                elif cname in {"WITH_HELMET", "HELMET"}:
+                    box_draw_list.append((d.bbox, "HELMET", d.confidence, False))
+                    compliance_notes.append(f"Rider verified wearing HELMET ({int(d.confidence*100)}% conf)")
+                elif cname in {"MORE_THAN_TWO_PERSONS", "TRIPLE_RIDING", "TRIPLE_RIDER"}:
+                    box_draw_list.append((d.bbox, "TRIPLE RIDING", d.confidence, True))
+                    violation_candidates.append({
+                        "type": "TRIPLE_RIDING",
+                        "confidence": d.confidence,
+                        "bbox": d.bbox,
+                        "class": cname,
+                    })
+                elif cname in {"USING_MOBILE", "MOBILE_PHONE"}:
+                    box_draw_list.append((d.bbox, "PHONE USAGE", d.confidence, True))
+                    violation_candidates.append({
+                        "type": "MOBILE_PHONE_WHILE_DRIVING",
+                        "confidence": d.confidence,
+                        "bbox": d.bbox,
+                        "class": cname,
+                    })
+
+    # -------------------------------------------------------------
+    # 3. DIRECT CROP / TIGHT WINDSHIELD / OCCUPANT CROP
+    # -------------------------------------------------------------
+    elif not is_four_wheeler and not is_two_wheeler:
+        sb_model = _get_seatbelt_model()
+        sb_checked = False
+        if sb_model is not None and (claimed_viol == "NO_SEATBELT" or len(persons) > 0 or claimed_viol in {None, "AUTO_DETECT"}):
+            ch, cw = img.shape[:2]
+            if cw >= 60 and ch >= 60:
+                gray = cv2.cvtColor(img, cv2.COLOR_BGR2GRAY)
+                sharpness = cv2.Laplacian(gray, cv2.CV_64F).var()
+                if sharpness >= 15.0:
+                    try:
+                        res = sb_model(img, conf=0.20, verbose=False)
+                        if res and len(res[0].boxes) > 0:
+                            sb_checked = True
+                            best_sb_conf = 0.0
+                            best_ns_conf = 0.0
+                            best_sb_box = None
+                            best_ns_box = None
+                            for b in res[0].boxes:
+                                cid = int(b.cls[0].item())
+                                conf = float(b.conf[0].item())
+                                bbox = [float(x) for x in b.xyxy[0].cpu().numpy().tolist()]
+                                if cid == 0 and conf > best_sb_conf:
+                                    best_sb_conf = conf
+                                    best_sb_box = bbox
+                                elif cid == 1 and conf > best_ns_conf:
+                                    best_ns_conf = conf
+                                    best_ns_box = bbox
+
+                            CONF_THRESH = 0.35
+                            if best_sb_conf >= CONF_THRESH and best_sb_conf >= best_ns_conf:
+                                box_draw_list.append((best_sb_box, "SEATBELT", best_sb_conf, False))
+                                compliance_notes.append(f"Occupant verified wearing SEATBELT ({int(best_sb_conf*100)}% conf)")
+                                compliance_status = "SEATBELT_COMPLIANT"
+                            elif best_ns_conf >= CONF_THRESH:
+                                box_draw_list.append((best_ns_box, "NO SEATBELT", best_ns_conf, True))
+                                violation_candidates.append({
+                                    "type": "NO_SEATBELT",
+                                    "confidence": best_ns_conf,
+                                    "bbox": best_ns_box,
+                                    "class": "NO_SEATBELT",
+                                })
+                                compliance_status = "NO_SEATBELT_VIOLATION"
+                            else:
+                                compliance_status = "INCONCLUSIVE"
+                    except Exception as e:
+                        logger.debug(f"Direct crop seatbelt inference error: {e}")
+
+        if not sb_checked and claimed_viol in {"NO_HELMET", "TRIPLE_RIDING"}:
+            for d in dets:
+                cname = d.class_name.upper().replace(" ", "_")
+                if cname in {"WITHOUT_HELMET", "NO_HELMET"} and claimed_viol == "NO_HELMET" and d.confidence >= 0.60:
+                    box_draw_list.append((d.bbox, "NO HELMET", d.confidence, True))
+                    violation_candidates.append({
+                        "type": "NO_HELMET",
+                        "confidence": d.confidence,
+                        "bbox": d.bbox,
+                        "class": cname,
+                    })
+                elif cname in {"WITH_HELMET", "HELMET"}:
+                    box_draw_list.append((d.bbox, "HELMET", d.confidence, False))
+                    compliance_notes.append("Rider verified wearing HELMET")
+
+    # -------------------------------------------------------------
+    # 4. RENDER ANNOTATED IMAGE
+    # -------------------------------------------------------------
+    photo_annotated = None
+    if box_draw_list:
+        ann = img.copy()
+        for box, lbl, c, is_bad in box_draw_list:
+            x1, y1, x2, y2 = [int(p) for p in box]
+            color = (0, 0, 255) if is_bad else (0, 200, 0)
+            cv2.rectangle(ann, (x1, y1), (x2, y2), color, 3)
+            text = f"{lbl} {int(c * 100)}%"
+            (tw, th), _ = cv2.getTextSize(text, cv2.FONT_HERSHEY_SIMPLEX, 0.55, 1)
+            cv2.rectangle(ann, (x1, max(0, y1 - 22)), (x1 + tw + 6, y1), color, -1)
+            cv2.putText(ann, text, (x1 + 3, max(12, y1 - 6)), cv2.FONT_HERSHEY_SIMPLEX, 0.55, (255, 255, 255), 1, cv2.LINE_AA)
+        photo_annotated = ann
+
+    # -------------------------------------------------------------
+    # 5. CONSTRUCT EXPLANATION AND UNIQUE VIOLATIONS
+    # -------------------------------------------------------------
+    unique_violations: Dict[str, float] = {}
+    for cand in violation_candidates:
+        t = cand["type"]
+        unique_violations[t] = max(unique_violations.get(t, 0.0), cand["confidence"])
+
+    detection_note = ""
+    if unique_violations:
+        items = [f"{t} ({int(conf*100)}%)" for t, conf in unique_violations.items()]
+        detection_note = f"🤖 AI Detected Violation: {', '.join(items)}."
+        if "NO_SEATBELT" in unique_violations:
+            compliance_status = "NO_SEATBELT_VIOLATION"
+    elif compliance_notes:
+        detection_note = f"✅ AI Verified: {'; '.join(compliance_notes)}. Forwarded for officer review."
+        if any("SEATBELT" in n for n in compliance_notes):
+            compliance_status = "SEATBELT_COMPLIANT"
+    elif is_four_wheeler:
+        detection_note = "⚠️ AI Analysis Inconclusive: Four-wheeler detected, but cabin visibility/seatbelt pattern is below automated confidence threshold (35%). Fastened seatbelt strap cannot be ruled out. Forwarded for manual officer review."
+        compliance_status = "INCONCLUSIVE"
+    elif is_two_wheeler:
+        detection_note = "⚠️ AI Analysis Inconclusive: Two-wheeler detected, but violation could not be confirmed automatically. Forwarded for manual officer review."
+        compliance_status = "INCONCLUSIVE"
+    else:
+        detection_note = "⚠️ AI Analysis Inconclusive: Vehicle type or violation not recognized by AI. Forwarded for manual officer review."
+        compliance_status = "INCONCLUSIVE"
+
+    return {
+        "unique_violations": unique_violations,
+        "box_draw_list": box_draw_list,
+        "photo_annotated": photo_annotated,
+        "detection_note": detection_note,
+        "is_four_wheeler": is_four_wheeler,
+        "is_two_wheeler": is_two_wheeler,
+        "compliance_status": compliance_status,
+        "sharpness": round(best_sharpness, 1) if best_sharpness > 0 else None,
+        "crop_dimensions": best_crop_dims,
+        "diagnostic_trace": diagnostic_trace,
+    }
 
 def clean_plate(text: Optional[str]) -> Optional[str]:
     if not text:
@@ -136,6 +554,10 @@ def _manual_record(
             "detection_note": info.get("detection_note"),
             "concurrent_violations": info.get("concurrent_violations", []),
             "detected_violations": info.get("detected_violations", []),
+            "status_category": info.get("status_category"),
+            "sharpness": info.get("sharpness"),
+            "crop_dimensions": info.get("crop_dimensions"),
+            "diagnostic_trace": info.get("diagnostic_trace", []),
         },
         "upload": str(upload),
         "claimed_type": info.get("claimed_violation") or chosen_type,
@@ -221,9 +643,9 @@ def process_upload(upload: Path, info: Dict[str, Any],
         auto_plate, auto_crop = pipe.get_best_plate_and_crop()
 
     elif upload.suffix.lower() in PHOTO_TYPES:
+        photo_ai_note = ""
         try:
             from algorithms.plate_ocr.plate_recognizer import PlateRecognizer
-            from algorithms.detection.detector import TrafficDetector
             img = cv2.imread(str(upload))
             if img is not None:
                 ocr = PlateRecognizer()
@@ -231,59 +653,15 @@ def process_upload(upload: Path, info: Dict[str, Any],
                 if res:
                     auto_plate, _, auto_crop = res
 
-                # Run AI detector on photo!
-                detector = TrafficDetector(confidence=0.18)
-                dets = detector.detect(img)
-                
-                # Identify all violations and compliance
-                violation_candidates = []
-                box_draw_list = []
-                for d in dets:
-                    cname = d.class_name.upper().replace(" ", "_").replace("-", "_")
-                    viol_name = None
-                    badge_lbl = None
-                    is_bad = True
-                    
-                    if cname in {"MORE_THAN_TWO_PERSONS", "TRIPLE_RIDING", "TRIPLE_RIDER"}:
-                        viol_name = "TRIPLE_RIDING"
-                        badge_lbl = "TRIPLE RIDING"
-                    elif cname in {"WITHOUT_HELMET", "NO_HELMET"}:
-                        viol_name = "NO_HELMET"
-                        badge_lbl = "NO HELMET"
-                    elif cname in {"WITH_HELMET", "HELMET"}:
-                        badge_lbl = "HELMET"
-                        is_bad = False
-                    elif cname in {"USING_MOBILE", "MOBILE_PHONE"}:
-                        viol_name = "MOBILE_PHONE_WHILE_DRIVING"
-                        badge_lbl = "PHONE USAGE"
-
-                    if badge_lbl:
-                        box_draw_list.append((d.bbox, badge_lbl, d.confidence, is_bad))
-                    if viol_name:
-                        violation_candidates.append({
-                            "type": viol_name,
-                            "confidence": d.confidence,
-                            "bbox": d.bbox,
-                            "class": cname,
-                        })
-
-                # Draw bounding boxes on photo
-                if box_draw_list:
-                    ann = img.copy()
-                    for box, lbl, c, is_bad in box_draw_list:
-                        x1, y1, x2, y2 = [int(p) for p in box]
-                        color = (0, 0, 255) if is_bad else (0, 200, 0)
-                        cv2.rectangle(ann, (x1, y1), (x2, y2), color, 3)
-                        text = f"{lbl} {int(c * 100)}%"
-                        (tw, th), _ = cv2.getTextSize(text, cv2.FONT_HERSHEY_SIMPLEX, 0.55, 1)
-                        cv2.rectangle(ann, (x1, max(0, y1 - 22)), (x1 + tw + 6, y1), color, -1)
-                        cv2.putText(ann, text, (x1 + 3, max(12, y1 - 6)), cv2.FONT_HERSHEY_SIMPLEX, 0.55, (255, 255, 255), 1, cv2.LINE_AA)
-                    photo_annotated = ann
-
-                # Group detected violations by type to capture ALL simultaneous offenses
-                for cand in violation_candidates:
-                    t = cand["type"]
-                    unique_violations[t] = max(unique_violations.get(t, 0.0), cand["confidence"])
+                # Vehicle-type-aware AI classification
+                classification = classify_citizen_photo(img, claimed_viol=claimed_viol)
+                unique_violations = classification["unique_violations"]
+                photo_annotated = classification["photo_annotated"]
+                photo_ai_note = classification["detection_note"]
+                compliance_status = classification.get("compliance_status")
+                sharpness = classification.get("sharpness")
+                crop_dimensions = classification.get("crop_dimensions")
+                diagnostic_trace = classification.get("diagnostic_trace", [])
 
                 if unique_violations:
                     photo_ai_conf = max(unique_violations.values())
@@ -338,6 +716,10 @@ def process_upload(upload: Path, info: Dict[str, Any],
                     info_copy["violation_type"] = v_type
                     info_copy["auto_classified"] = True
                     info_copy["concurrent_violations"] = all_types
+                    info_copy["status_category"] = compliance_status
+                    info_copy["sharpness"] = sharpness
+                    info_copy["crop_dimensions"] = crop_dimensions
+                    info_copy["diagnostic_trace"] = diagnostic_trace
                     other_v = [x for x in all_types if x != v_type]
                     if other_v:
                         info_copy["detection_note"] = f"Concurrent violation: Also detected {', '.join(other_v)} on this vehicle."
@@ -361,6 +743,11 @@ def process_upload(upload: Path, info: Dict[str, Any],
                 fallback_type = claimed_viol if claimed_viol not in {None, "AUTO_DETECT"} else "CITIZEN_REPORT"
                 info_copy["violation_type"] = fallback_type
                 info_copy["auto_classified"] = False
+                info_copy["detection_note"] = photo_ai_note if "photo_ai_note" in locals() and photo_ai_note else "AI Analysis Inconclusive: Forwarded for manual officer review."
+                info_copy["status_category"] = compliance_status if "compliance_status" in locals() else None
+                info_copy["sharpness"] = sharpness if "sharpness" in locals() else None
+                info_copy["crop_dimensions"] = crop_dimensions if "crop_dimensions" in locals() else None
+                info_copy["diagnostic_trace"] = diagnostic_trace if "diagnostic_trace" in locals() else []
                 rec = _manual_record(
                     db,
                     upload,
@@ -397,6 +784,10 @@ def process_upload(upload: Path, info: Dict[str, Any],
                 "confidence": m.confidence,
                 "claimed": claimed_viol,
                 "auto_classified": m.confidence > 0.0,
+                "status_category": compliance_status if "compliance_status" in locals() else None,
+                "detection_note": photo_ai_note if "photo_ai_note" in locals() else None,
+                "sharpness": sharpness if "sharpness" in locals() else None,
+                "crop_dimensions": crop_dimensions if "crop_dimensions" in locals() else None,
             })
 
         total_detected = len(records) + (len(unique_violations) if unique_violations else (1 if photo_ai_conf > 0 else 0))
@@ -406,6 +797,11 @@ def process_upload(upload: Path, info: Dict[str, Any],
             "detected": total_detected,
             "ai_detected": photo_ai_conf > 0.0 or len(records) > 0,
             "all_violations": list(unique_violations.keys()),
+            "compliance_status": compliance_status if "compliance_status" in locals() else None,
+            "detection_note": photo_ai_note if "photo_ai_note" in locals() else None,
+            "sharpness": sharpness if "sharpness" in locals() else None,
+            "crop_dimensions": crop_dimensions if "crop_dimensions" in locals() else None,
+            "diagnostic_trace": diagnostic_trace if "diagnostic_trace" in locals() else [],
         }
     finally:
         db.close()

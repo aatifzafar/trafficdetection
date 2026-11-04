@@ -25,6 +25,8 @@ class TrafficRuleEngine:
         self.config = config or {}
         v_cfg = self.config.get("violations", {})
         temp_cfg = self.config.get("temporal_confirmation", {})
+        cams_cfg = self.config.get("cameras", {})
+        det_cfg = self.config.get("detection", {})
 
         w = int(temp_cfg.get("window", 10))
         min_p = int(temp_cfg.get("minimum_positive_frames", 6))
@@ -44,7 +46,7 @@ class TrafficRuleEngine:
             )
 
         if v_cfg.get("red_light", True):
-            stop_line = self.config.get("cameras", {}).get("default_stop_line", None)
+            stop_line = cams_cfg.get("default_stop_line", None)
             self.rules["red_light"] = RedLightViolationRule(
                 stop_line=stop_line,
                 temporal_window=max(3, w // 2),
@@ -53,8 +55,8 @@ class TrafficRuleEngine:
             )
 
         if v_cfg.get("wrong_way", True):
-            lane_vec = self.config.get("cameras", {}).get("default_lane_direction", [0, 1])
-            max_angle = float(self.config.get("cameras", {}).get("max_angle_deviation_deg", 120))
+            lane_vec = cams_cfg.get("default_lane_direction", [0, 1])
+            max_angle = float(cams_cfg.get("max_angle_deviation_deg", 120))
             self.rules["wrong_way"] = WrongWayViolationRule(
                 lane_vector=lane_vec,
                 max_angle_deviation_deg=max_angle,
@@ -64,8 +66,22 @@ class TrafficRuleEngine:
             )
 
         if v_cfg.get("seatbelt", True):
+            sb_model = det_cfg.get("model_seatbelt", None)
+            sb_perspective = cams_cfg.get("seatbelt_perspective") or cams_cfg.get("default_perspective") or cams_cfg.get("perspective", "AUTO")
+            sb_conf = float(v_cfg.get("seatbelt_confidence", 0.35))
+            sb_min_crop = int(cams_cfg.get("seatbelt_min_crop_px", 90))
+            sb_min_sharp = float(cams_cfg.get("seatbelt_min_sharpness", 30.0))
+
             self.rules["seatbelt"] = SeatbeltViolationRule(
-                temporal_window=w, min_positive_frames=min_p, cooldown_seconds=cd
+                model_path=sb_model,
+                perspective=sb_perspective,
+                confidence_threshold=sb_conf,
+                temporal_window=w,
+                min_positive_frames=min_p,
+                cooldown_seconds=cd,
+                min_crop_w=sb_min_crop,
+                min_crop_h=sb_min_crop,
+                min_sharpness=sb_min_sharp,
             )
 
         if v_cfg.get("mobile_phone", True):

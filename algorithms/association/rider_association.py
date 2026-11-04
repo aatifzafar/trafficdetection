@@ -79,7 +79,7 @@ class RiderMotorcycleAssociator:
                 m_height = my2 - my1
 
                 # 1. Horizontal constraint: Person's horizontal center must align with motorcycle
-                horizontal_padding = 0.25 * m_width
+                horizontal_padding = 0.35 * m_width
                 if not (mx1 - horizontal_padding <= pcx <= mx2 + horizontal_padding):
                     continue
 
@@ -88,7 +88,7 @@ class RiderMotorcycleAssociator:
                 if py1 > mcy:
                     continue
                 # Rider feet/base py2 must reach down into the upper or middle section of the motorcycle
-                if py2 < my1 - 0.2 * m_height:
+                if py2 < my1 - 0.25 * m_height:
                     continue
 
                 # 3. Intersection over person area

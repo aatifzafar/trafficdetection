@@ -7,7 +7,7 @@ from fastapi.staticfiles import StaticFiles
 
 from backend.config.settings import settings
 from backend.database.database import Base, engine, ensure_schema
-from backend.api import cameras, violations, analytics, uploads, vehicles, alerts
+from backend.api import cameras, violations, analytics, uploads, vehicles, alerts, seatbelt
 
 # Setup logging
 logging.basicConfig(
@@ -52,6 +52,7 @@ app.include_router(analytics.router)
 app.include_router(uploads.router)
 app.include_router(vehicles.router)
 app.include_router(alerts.router)
+app.include_router(seatbelt.router)
 
 
 @app.get("/health", tags=["System"])

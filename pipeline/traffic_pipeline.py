@@ -24,7 +24,7 @@ from algorithms.calibration.camera_calibration import (
 )
 
 # Classes produced by the custom model; they are evidence, not objects to track
-CUSTOM_CLASSES = {"helmet", "no_helmet", "number_plate", "plate", "with_helmet", "without_helmet", "more_than_two_persons", "using_mobile", "triple_riding", "triple_rider", "triple-riding-bikes", "normal"}
+CUSTOM_CLASSES = {"helmet", "no_helmet", "number_plate", "plate", "with_helmet", "without_helmet", "more_than_two_persons", "using_mobile", "triple_riding", "triple_rider", "triple-riding-bikes", "normal", "seatbelt", "no_seatbelt", "seat_belt", "no_seat_belt"}
 OCR_EVERY_N_FRAMES = 8       # periodic plate reads for vehicles without a plate yet
 OCR_MIN_VEHICLE_PX = 80      # skip vehicles too small for a readable plate
 

@@ -28,6 +28,7 @@ class Settings:
     
     MODEL_TRAFFIC: str = _cfg.get("detection", {}).get("model_traffic", "models/yolo26n.pt")
     MODEL_CUSTOM: str = _cfg.get("detection", {}).get("model_custom", "models/traffic_custom.pt")
+    MODEL_SEATBELT: str = _cfg.get("detection", {}).get("model_seatbelt", "models/seatbelt_best.pt")
     MODEL_HELMET: str = _cfg.get("detection", {}).get("model_helmet", "models/helmet_model.pt")
     MODEL_PLATE: str = _cfg.get("detection", {}).get("model_plate", "models/plate_model.pt")
     CONFIDENCE: float = float(_cfg.get("detection", {}).get("confidence", 0.35))

@@ -27,7 +27,7 @@ RUN pip install --no-cache-dir --upgrade pip && \
 COPY . .
 
 # Ensure storage directories exist
-RUN mkdir -p data/videos data/evidence models
+RUN mkdir -p data/videos data/evidence models data/seatbelt data/seatbelt/test_samples
 
 # Expose ports for FastAPI (8000) and Streamlit (8501)
 EXPOSE 8000 8501

@@ -67,3 +67,8 @@ data/old/
 data/training_artifacts/
 models/traffic_custom_yolo26n_v2_832.pt
 models/traffic_custom_yolo26n.pt
+models/*.pt
+
+# Seatbelt datasets, test samples & outputs
+data/seatbelt/
+data/seatbelt/test_samples/

@@ -9,6 +9,7 @@ detection:
   model_traffic: "models/yolo26n.pt"
   model_custom: "models/traffic_custom.pt"
   model_triple: "models/triple_riding_best.pt"  # team's triple-riding model (only its triple/phone classes are used)
+  model_seatbelt: "models/seatbelt_best.pt"
   model_helmet: "models/helmet_model.pt"
   model_plate: "models/plate_model.pt"
   confidence: 0.35
@@ -40,7 +41,8 @@ violations:
   triple_riding: true
   red_light: true
   wrong_way: true
-  seatbelt: false      # no seatbelt model or cabin camera yet (future work)
+  seatbelt: true       # Custom YOLO26n seatbelt model (models/seatbelt_best.pt)
+  seatbelt_confidence: 0.35
   mobile_phone: false  # phones are too small to see reliably from CCTV (future work)
 
 temporal_confirmation:
@@ -72,11 +74,14 @@ cameras:
     y2: 520
   default_lane_direction: [0, 1] # Primary flow vector [dx, dy] (downward)
   max_angle_deviation_deg: 120 # degrees before flagged as wrong-way
+  default_perspective: "AUTO" # "AUTO", "FRONT", "SIDE"
+  seatbelt_min_crop_px: 90
+  seatbelt_min_sharpness: 30.0
 
 # Per-camera calibration. The dashboard's Camera setup page writes it to data/camera_calibration.yaml
 # (that file wins over this block). Keys are camera ids from the database. Each may contain:
 #   stop_line: {x1, y1, x2, y2}   lane_direction: [dx, dy]   signal_roi: [x1, y1, x2, y2]
-#   rules: {helmet, triple_riding, red_light, wrong_way}   night_mode: true|false
+#   rules: {helmet, triple_riding, red_light, wrong_way, seatbelt}   night_mode: true|false
 camera_calibration: {}
 
 # Duplicate merging: same plate (or same tracked vehicle) + same violation on the same camera

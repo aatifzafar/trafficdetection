@@ -1,0 +1,51 @@
+{
+  "model": "seatbelt_best.pt",
+  "architecture": "YOLO26n fine-tuned on Seatbelt Dataset (Google Colab T4 GPU)",
+  "image_size": 640,
+  "overall": {
+    "precision": 0.832,
+    "recall": 0.556,
+    "mAP50": 0.595,
+    "mAP50_95": 0.286
+  },
+  "per_class": {
+    "seatbelt": {
+      "precision": 0.854,
+      "recall": 0.680,
+      "F1": 0.757,
+      "mAP50": 0.732,
+      "mAP50_95": 0.362
+    },
+    "no_seatbelt": {
+      "precision": 0.810,
+      "recall": 0.432,
+      "F1": 0.563,
+      "mAP50": 0.459,
+      "mAP50_95": 0.210
+    }
+  },
+  "test": {
+    "overall": {
+      "precision": 0.832,
+      "recall": 0.556,
+      "F1": 0.667,
+      "mAP50": 0.595,
+      "mAP50_95": 0.286
+    },
+    "per_class": {
+      "seatbelt": {
+        "mAP50": 0.732
+      },
+      "no_seatbelt": {
+        "mAP50": 0.459
+      }
+    }
+  },
+  "split_counts": {
+    "train": 3101,
+    "val": 380,
+    "test": 368
+  },
+  "limitations": "Model trained on front-cabin windshield driver and passenger crops under standard daylight/twilight conditions. CCTV junction footage from high-elevation overhead cameras or with windshield glare has lower recall on unbuckled occupants; therefore, the pipeline requires optical visibility verification (minimum 90x90px crop and Laplacian blur check) and routes all detections through human-in-the-loop review."
+}
+

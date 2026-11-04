@@ -103,14 +103,32 @@ def render():
                     )
                 rows = ""
                 for r in res["records"]:
+                    status_cat = r.get("status_category") or res.get("compliance_status")
+                    note = r.get("detection_note") or res.get("detection_note") or ""
+                    sharpness_val = r.get("sharpness") or res.get("sharpness")
+                    sharp_str = f" · Sharpness: {sharpness_val:.1f}" if sharpness_val is not None else ""
+
                     if r["auto"]:
                         pct = f"{r['confidence'] * 100:.1f}%"
-                        how_html = f'<b style="color:#2E7D32">🤖 Detected by AI ({pct} confidence)</b>'
+                        if r["type"] == "NO_SEATBELT":
+                            how_html = f'<b style="color:#C62828">🚨 AI Detected: NO_SEATBELT ({pct} conf{sharp_str})</b>'
+                        else:
+                            how_html = f'<b style="color:#2E7D32">🤖 Detected by AI: {ui.esc(r["type"])} ({pct} conf)</b>'
                         if r.get("claimed") and r["claimed"] not in {None, "AUTO_DETECT", r["type"]}:
                             claimed_lbl = TYPE_LABEL.get(r["claimed"], r["claimed"])
                             how_html += f'<br><span style="color:#E65100;font-size:12px">⚡ Auto-classified by AI (you reported: <i>{ui.esc(claimed_lbl)}</i>)</span>'
+                    elif status_cat == "SEATBELT_COMPLIANT":
+                        how_html = f'<b style="color:#2E7D32">✅ AI Verified: Compliant (Seatbelt Fastened)</b>'
+                        if note:
+                            how_html += f'<br><span style="color:#555;font-size:12px">{ui.esc(note)}{sharp_str}</span>'
+                    elif status_cat == "INCONCLUSIVE":
+                        how_html = f'<b style="color:#D97706">⚠️ AI Analysis: Inconclusive</b>'
+                        if note:
+                            how_html += f'<br><span style="color:#555;font-size:12px">{ui.esc(note)}{sharp_str}</span>'
                     else:
                         how_html = '<span style="color:#666">Citizen report (forwarded for officer review)</span>'
+                        if note:
+                            how_html += f'<br><span style="color:#666;font-size:12px">{ui.esc(note)}</span>'
                     rows += (
                         f'<tr><td><code>{ui.esc(r["event_id"])}</code></td>'
                         f'<td>{ui.violation_tag(r["type"], "CITIZEN")}</td>'

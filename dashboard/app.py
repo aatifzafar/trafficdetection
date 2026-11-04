@@ -3,8 +3,8 @@ TrafficAI officer dashboard (Streamlit).
 
     streamlit run dashboard/app.py
 
-Pages: Overview · Review queue · Live cameras · Upload proof · Violations · Vehicles · Analytics · Models · Evaluation ·
-Camera setup · Settings (Overview, Evaluation and Settings are the pages from the first version, kept).
+Pages: Overview · Review queue · Cameras · Upload proof · Violations · Vehicles · Analytics · Models · Evaluation ·
+Seatbelt Lab · Settings.
 Every number on screen comes from the database or from files the system wrote; nothing is hard-coded.
 """
 
@@ -22,7 +22,7 @@ from backend.db_models.models import Violation
 from dashboard import ui
 from backend.config.settings import settings
 from dashboard.views import (analytics, cameras, citizen_upload, evaluation, models_page, overview,
-                             review, settings_page, vehicles, violations)
+                             review, settings_page, vehicles, violations, seatbelt_test)
 
 st.set_page_config(page_title="TrafficAI · Officer console", page_icon="🚦", layout="wide",
                    initial_sidebar_state="collapsed")
@@ -39,6 +39,7 @@ PAGES = {
     "Analytics": analytics.render,
     "Models": models_page.render,
     "Evaluation": evaluation.render,
+    "Seatbelt Lab": seatbelt_test.render,
     "Settings": settings_page.render,
 }
 OFFICERS = ["Insp. R. Kumar", "SI P. Shetty", "Insp. S. Rao", "Demo officer"]
@@ -80,6 +81,7 @@ def top_bar() -> str:
 
 def sidebar(page: str):
     custom = Path(settings.MODEL_CUSTOM)
+    sb_path = Path(getattr(settings, "MODEL_SEATBELT", "models/seatbelt_best.pt"))
     with st.sidebar:
         st.markdown('<div class="brand" style="color:#18212B">TrafficAI</div>'
                     '<div class="small">B.Tech Design Project-I · Bengaluru HQ</div>', unsafe_allow_html=True)
@@ -87,8 +89,9 @@ def sidebar(page: str):
                     unsafe_allow_html=True)
         st.markdown(f'<dl class="kv"><dt>On duty</dt><dd>{ui.esc(st.session_state.get("officer", "—"))}</dd>'
                     f'<dt>Hardware</dt><dd>{ui.esc(settings.DEVICE.upper())}</dd>'
-                    f'<dt>Model</dt><dd>{ui.esc(Path(settings.MODEL_TRAFFIC).name)}</dd>'
+                    f'<dt>Traffic model</dt><dd>{ui.esc(Path(settings.MODEL_TRAFFIC).name)}</dd>'
                     f'<dt>Helmet model</dt><dd>{ui.esc(custom.name if custom.exists() else "not trained yet")}</dd>'
+                    f'<dt>Seatbelt model</dt><dd>{ui.esc(sb_path.name if sb_path.exists() else "standby")}</dd>'
                     f'<dt>Tracker</dt><dd>{ui.esc(settings.TRACKER_ALGO)}</dd>'
                     f'<dt>OCR</dt><dd>{ui.esc(settings.OCR_ENGINE)}</dd></dl>', unsafe_allow_html=True)
         st.caption("Detection settings can be changed on the Settings page.")

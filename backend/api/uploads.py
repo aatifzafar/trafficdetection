@@ -18,8 +18,12 @@ MAX_FILE_SIZE = 250 * 1024 * 1024  # 250 MB
 
 
 def sanitize_filename(name: str) -> str:
-    cleaned = "".join(c for c in name if c.isalnum() or c in "._- ")
-    return cleaned.replace(" ", "_")
+    """Safely sanitizes uploaded filename, stripping paths and directory traversal sequences."""
+    base = Path(name).name
+    cleaned = "".join(c for c in base if c.isalnum() or c in "._- ")
+    while ".." in cleaned:
+        cleaned = cleaned.replace("..", "_")
+    return cleaned.replace(" ", "_").lstrip(".") or "uploaded_video"
 
 
 def run_pipeline_task(video_path: str, camera_id: int, location: str):

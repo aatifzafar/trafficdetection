@@ -85,7 +85,7 @@ class TripleRidingRule(BaseViolationRule):
             direct_conf = 0.88
             for idx, dt in enumerate(direct_triple_boxes):
                 dcx, dcy = dt.center
-                if (bx1 - 0.25 * bw <= dcx <= bx2 + 0.25 * bw) and (by1 - 0.25 * bh <= dcy <= by2 + 0.25 * bh):
+                if (bx1 - 0.35 * bw <= dcx <= bx2 + 0.35 * bw) and (by1 - 1.20 * bh <= dcy <= by2 + 0.35 * bh):
                     direct_match = True
                     direct_conf = max(direct_conf, dt.confidence)
                     matched_dt_indices.add(idx)

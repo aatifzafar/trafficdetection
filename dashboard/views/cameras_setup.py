@@ -27,6 +27,7 @@ RULE_NAMES = {
     "triple_riding": ("Triple riding", ""),
     "red_light": ("Red light jump", "Needs the stop line and the signal area"),
     "wrong_way": ("Wrong way", "Needs the lane direction"),
+    "seatbelt": ("Seatbelt compliance", "Evaluates driver/passenger front/side cabin with YOLO26n"),
 }
 
 
@@ -299,7 +300,7 @@ def _render_all_cameras_map(raw_cams):
                             if db_c:
                                 db_c.latitude = round(res[0], 4)
                                 db_c.longitude = round(res[1], 4)
-                                db.commit()
+                                db_c.commit()
                         st.toast(f"📍 Updated {c.name} to ({res[0]:.4f}, {res[1]:.4f})", icon="📍")
                         st.rerun()
                     else:
@@ -371,7 +372,7 @@ def _render_calibration_view(cams, status, cfg):
             if tool == "Stop line":
                 c = st.columns(4)
                 sl = {"x1": c[0].number_input("Left x", 0, w, int(sl["x1"])), "y1": c[1].number_input("Left y", 0, h, int(sl["y1"])),
-                      "x2": c[2].number_input("Right x", 0, w, int(sl["x2"])), "y2": c[3].number_input("Right y", 0, h, int(sl["y2"]))}
+                       "x2": c[2].number_input("Right x", 0, w, int(sl["x2"])), "y2": c[3].number_input("Right y", 0, h, int(sl["y2"]))}
                 st.session_state[f"sl_{cid}"] = sl
             elif tool == "Lane direction":
                 ang0 = int(round(math.degrees(math.atan2(lane[1], lane[0])))) % 360
@@ -398,9 +399,10 @@ def _render_calibration_view(cams, status, cfg):
             test = st.session_state.get(f"test_{cid}")
             if test:
                 st.markdown(f'<div class="lbl" style="margin-top:10px">Last test · {test["when"]} · {test["frames"]} frames '
-                            f'(nothing was saved)</div><div style="display:grid;grid-template-columns:repeat(4,1fr);gap:8px;margin-top:6px">'
-                            f'{ui.stat(test["vehicles"], "vehicles tracked")}{ui.stat(test["red"], "stop-line crossings on red")}'
-                            f'{ui.stat(test["wrong"], "wrong-way movements")}{ui.stat(test["fps"], "frames per second")}</div>',
+                            f'(nothing was saved)</div><div style="display:grid;grid-template-columns:repeat(5,1fr);gap:8px;margin-top:6px">'
+                            f'{ui.stat(test["vehicles"], "vehicles tracked")}{ui.stat(test["red"], "red light jumps")}'
+                            f'{ui.stat(test["wrong"], "wrong-way movements")}{ui.stat(test.get("seatbelt", 0), "no seatbelt")}'
+                            f'{ui.stat(test["fps"], "frames/sec")}</div>',
                             unsafe_allow_html=True)
 
     with right:
@@ -413,13 +415,31 @@ def _render_calibration_view(cams, status, cfg):
             rules_saved = saved.get("rules") or {}
             rules = {}
             for k in RULE_KEYS:
-                title, hint = RULE_NAMES[k]
+                title, hint = RULE_NAMES.get(k, (k.replace('_', ' ').title(), ""))
                 rules[k] = st.toggle(title, value=bool(rules_saved.get(k, True)), help=hint or None, key=f"rule_{cid}_{k}")
+
+            st.markdown('<div class="lbl" style="margin-top:10px">Seatbelt CCTV Perspective</div>', unsafe_allow_html=True)
+            persp_opts = ["AUTO", "FRONT", "SIDE"]
+            persp_saved = (saved.get("perspective") or saved.get("seatbelt_perspective") or "AUTO").upper()
+            persp_idx = persp_opts.index(persp_saved) if persp_saved in persp_opts else 0
+            persp_val = st.selectbox(
+                "Perspective Mode",
+                persp_opts,
+                index=persp_idx,
+                key=f"persp_{cid}",
+                help="FRONT: oncoming/overhead CCTV; SIDE: lateral street angle; AUTO: aspect-ratio detection",
+            )
+
             a = b = st.container()
             if a.button("Test stream", use_container_width=True, disabled=frame is None):
                 _run_test(cid, src, cal_now, rules)
             if b.button("Save calibration", type="primary", use_container_width=True):
-                save_camera_calibration(cid, {**cal_now, "rules": rules})
+                save_camera_calibration(cid, {
+                    **cal_now,
+                    "rules": rules,
+                    "perspective": persp_val,
+                    "seatbelt_perspective": persp_val,
+                })
                 st.toast(f"Saved calibration for {name} to data/camera_calibration.yaml")
                 st.rerun()
 
@@ -450,6 +470,7 @@ def _run_test(cid, src, cal, rules):
     st.session_state[f"test_{cid}"] = {
         "when": time.strftime("%H:%M"), "frames": n, "vehicles": len(pipe.total_vehicles_seen),
         "red": pipe.event_counts.get("RED_LIGHT_JUMP", 0), "wrong": pipe.event_counts.get("WRONG_WAY", 0),
+        "seatbelt": pipe.event_counts.get("NO_SEATBELT", 0),
         "fps": f"{n / max(0.001, time.time() - t0):.1f}",
     }
     st.rerun()
