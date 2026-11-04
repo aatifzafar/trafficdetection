@@ -375,3 +375,60 @@ def test_10_cctv_highway_citizen_photo_upload():
     assert "UNVERIFIED" in rec["verification_status"]
 
 
+# ==============================================================================
+# TEST 11: Deep Learning Bi-LSTM Checkpoint Output Verification
+# Expected: wrong_way_lstm.pt loads, executes forward pass, and outputs correct class probabilities
+# ==============================================================================
+def test_11_deep_learning_bi_lstm_model_inference():
+    import torch
+    from algorithms.violation_rules.wrong_way_net import WrongWayLSTM, extract_trajectory_features
+
+    model_path = Path("models/wrong_way_lstm.pt")
+    assert model_path.exists(), "models/wrong_way_lstm.pt checkpoint must exist"
+
+    ckpt = torch.load(model_path, map_location="cpu", weights_only=False)
+    assert "model_state_dict" in ckpt
+    assert ckpt["input_dim"] == 7
+    assert ckpt["num_classes"] == 2
+
+    model = WrongWayLSTM(
+        input_dim=ckpt["input_dim"],
+        hidden_dim=ckpt["hidden_dim"],
+        num_layers=ckpt["num_layers"],
+        num_classes=ckpt["num_classes"],
+    )
+    model.load_state_dict(ckpt["model_state_dict"])
+    model.eval()
+
+    # 1. Test retrograde / counterflow motion (driving upward against downward [0, 1] lane)
+    wrong_traj = [
+        [500.0, 500.0], [500.0, 470.0], [502.0, 440.0], [501.0, 410.0],
+        [500.0, 380.0], [503.0, 350.0], [500.0, 320.0], [502.0, 290.0]
+    ]
+    feat_wrong = extract_trajectory_features(wrong_traj, [0.0, 1.0])
+    assert feat_wrong is not None
+    assert feat_wrong.shape == (8, 7)
+
+    t_wrong = torch.tensor(feat_wrong, dtype=torch.float32).unsqueeze(0)
+    probs_wrong = model.predict_proba(t_wrong).detach().cpu().numpy()[0]
+    print(f"\n[Test 11 Output] Retrograde Trajectory Probabilities: Compliant={probs_wrong[0]:.4f}, Wrong-Way={probs_wrong[1]:.4f}")
+    assert probs_wrong[1] > 0.85, f"Expected high wrong-way probability, got {probs_wrong[1]}"
+    assert np.argmax(probs_wrong) == 1, "Argmax class output must be 1 (WRONG_WAY)"
+
+    # 2. Test compliant lane-following motion (driving downward with downward [0, 1] lane)
+    legal_traj = [
+        [500.0, 200.0], [502.0, 230.0], [505.0, 260.0], [503.0, 290.0],
+        [501.0, 320.0], [504.0, 350.0], [506.0, 380.0], [508.0, 410.0]
+    ]
+    feat_legal = extract_trajectory_features(legal_traj, [0.0, 1.0])
+    assert feat_legal is not None
+    assert feat_legal.shape == (8, 7)
+
+    t_legal = torch.tensor(feat_legal, dtype=torch.float32).unsqueeze(0)
+    probs_legal = model.predict_proba(t_legal).detach().cpu().numpy()[0]
+    print(f"[Test 11 Output] Compliant Trajectory Probabilities: Compliant={probs_legal[0]:.4f}, Wrong-Way={probs_legal[1]:.4f}")
+    assert probs_legal[0] > 0.85, f"Expected high compliant probability, got {probs_legal[0]}"
+    assert np.argmax(probs_legal) == 0, "Argmax class output must be 0 (COMPLIANT_FLOW)"
+
+
+

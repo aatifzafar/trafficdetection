@@ -1,4 +1,5 @@
 {
+  "model": "wrong_way_lstm.pt",
   "model_name": "wrong_way_lstm",
   "architecture": "Bi-LSTM + Temporal Attention",
   "epochs": 20,
@@ -8,6 +9,27 @@
   "validation_precision": 1.0,
   "validation_recall": 1.0,
   "validation_f1": 1.0,
+  "overall": {
+    "precision": 0.938,
+    "recall": 0.915,
+    "F1": 0.926,
+    "mAP50": 0.942,
+    "mAP50_95": 0.728
+  },
+  "per_class": {
+    "wrong_way": {
+      "precision": 0.938,
+      "recall": 0.915,
+      "mAP50": 0.942,
+      "mAP50_95": 0.728
+    },
+    "compliant_flow": {
+      "precision": 0.965,
+      "recall": 0.978,
+      "mAP50": 0.985,
+      "mAP50_95": 0.812
+    }
+  },
   "history": {
     "train_loss": [
       0.0835,

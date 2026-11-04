@@ -93,6 +93,8 @@ def short(key_or_path: str) -> str:
         return "YOLO26n v2 (832 px, 80 ep)"
     if "seatbelt" in k:
         return "YOLO26n (Seatbelt)"
+    if "wrong_way" in k:
+        return "Bi-LSTM (Wrong Way)"
     return MODELS[k]["short"] if k in MODELS else Path(str(key_or_path)).stem
 
 
