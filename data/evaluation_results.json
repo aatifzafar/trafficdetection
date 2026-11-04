@@ -1,0 +1,35 @@
+{
+  "model": "yolo26n.pt",
+  "overall": {
+    "precision": 0.8651,
+    "recall": 0.8895,
+    "mAP50": 0.9217,
+    "mAP50_95": 0.6885
+  },
+  "speed_ms_per_image": {
+    "preprocess": 0.96,
+    "inference": 5.67,
+    "loss": 0.0,
+    "postprocess": 1.6
+  },
+  "per_class": {
+    "helmet": {
+      "precision": 0.8179,
+      "recall": 0.9104,
+      "mAP50": 0.9385,
+      "mAP50_95": 0.6767
+    },
+    "no_helmet": {
+      "precision": 0.7958,
+      "recall": 0.769,
+      "mAP50": 0.8324,
+      "mAP50_95": 0.5857
+    },
+    "number_plate": {
+      "precision": 0.9818,
+      "recall": 0.9891,
+      "mAP50": 0.9941,
+      "mAP50_95": 0.8029
+    }
+  }
+}

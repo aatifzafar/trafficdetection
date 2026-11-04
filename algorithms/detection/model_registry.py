@@ -89,6 +89,8 @@ def label(key_or_path: str) -> str:
 
 def short(key_or_path: str) -> str:
     k = key_for_path(key_or_path)
+    if "yolo26n_v2_832" in k:
+        return "YOLO26n v2 (832 px, 80 ep)"
     return MODELS[k]["short"] if k in MODELS else Path(str(key_or_path)).stem
 
 

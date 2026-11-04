@@ -8,6 +8,7 @@ app:
 detection:
   model_traffic: "models/yolo26n.pt"
   model_custom: "models/traffic_custom.pt"
+  model_triple: "models/triple_riding_best.pt"  # team's triple-riding model (only its triple/phone classes are used)
   model_helmet: "models/helmet_model.pt"
   model_plate: "models/plate_model.pt"
   confidence: 0.35
@@ -35,7 +36,7 @@ violations:
   helmet: true
   # The edge-count fallback flags almost every rider (helmet or not). Keep false until
   # models/traffic_custom.pt is trained; with the model present this setting is ignored.
-  helmet_baseline: true
+  helmet_baseline: false
   triple_riding: true
   red_light: true
   wrong_way: true

@@ -45,6 +45,7 @@ data/citizen_uploads/*
 # OS files
 .DS_Store
 Thumbs.db
+
 # Datasets
 datasets/*
 !datasets/raw/
@@ -56,3 +57,13 @@ datasets/raw/*
 cloudflared.exe
 *.exe
 data/videos/output_*.mp4
+
+# Training runs & model outputs
+runs/
+models/traffic_model_output/
+models/traffic_model_output*
+models/old/
+data/old/
+data/training_artifacts/
+models/traffic_custom_yolo26n_v2_832.pt
+models/traffic_custom_yolo26n.pt

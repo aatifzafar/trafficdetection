@@ -1,49 +1,50 @@
 {
-  "video": "data/videos/traffic_junction_cctv.mp4",
-  "frames_requested": 150,
+  "video": "data/videos/22.mp4",
+  "frames_requested": 120,
   "signal": "GREEN",
   "device": "cpu",
-  "timestamp": "2026-11-02 10:45:15",
+  "timestamp": "2026-11-04 10:50:27",
   "results": [
     {
       "model": "yolo26n",
       "label": "YOLO26n (2026, nano) \u2014 project model",
       "weights": "models/yolo26n.pt",
-      "frames": 150,
-      "detect_ms_mean": 105.0,
-      "detect_ms_p95": 249.7,
-      "pipeline_fps": 4.18,
-      "vehicles_per_frame": 3.09,
-      "people_per_frame": 0.76,
-      "mean_confidence": 0.621,
-      "frames_with_vehicle_pct": 100.0,
-      "vehicles_tracked": 39,
+      "frames": 120,
+      "detect_ms_mean": 306.8,
+      "detect_ms_p95": 991.1,
+      "pipeline_fps": 2.89,
+      "vehicles_per_frame": 0.98,
+      "people_per_frame": 1.52,
+      "mean_confidence": 0.613,
+      "frames_with_vehicle_pct": 98.3,
+      "vehicles_tracked": 1,
       "violations_flagged": 1,
       "violations_by_type": {
-        "WRONG_WAY": 1
+        "NO_HELMET": 1
       },
       "sample_frame": "data\\model_comparison\\yolo26n.jpg",
-      "sample_frame_index": 75
+      "sample_frame_index": 60
     },
     {
-      "model": "yolo26s",
-      "label": "YOLO26s (2026, small)",
-      "weights": "models/yolo26s.pt",
-      "frames": 150,
-      "detect_ms_mean": 113.9,
-      "detect_ms_p95": 258.4,
-      "pipeline_fps": 6.14,
-      "vehicles_per_frame": 4.48,
-      "people_per_frame": 1.27,
-      "mean_confidence": 0.649,
-      "frames_with_vehicle_pct": 100.0,
-      "vehicles_tracked": 56,
-      "violations_flagged": 1,
+      "model": "yolov8n",
+      "label": "YOLOv8n (2023, nano) \u2014 Review 1 plan",
+      "weights": "models/yolov8n.pt",
+      "frames": 120,
+      "detect_ms_mean": 241.7,
+      "detect_ms_p95": 665.4,
+      "pipeline_fps": 3.58,
+      "vehicles_per_frame": 0.93,
+      "people_per_frame": 2.0,
+      "mean_confidence": 0.656,
+      "frames_with_vehicle_pct": 92.5,
+      "vehicles_tracked": 1,
+      "violations_flagged": 2,
       "violations_by_type": {
+        "NO_HELMET": 1,
         "WRONG_WAY": 1
       },
-      "sample_frame": "data\\model_comparison\\yolo26s.jpg",
-      "sample_frame_index": 75
+      "sample_frame": "data\\model_comparison\\yolov8n.jpg",
+      "sample_frame_index": 60
     }
   ]
 }

@@ -1,0 +1,35 @@
+{
+  "model": "yolov8n.pt",
+  "overall": {
+    "precision": 0.8648,
+    "recall": 0.8354,
+    "mAP50": 0.9085,
+    "mAP50_95": 0.6712
+  },
+  "speed_ms_per_image": {
+    "preprocess": 1.07,
+    "inference": 4.63,
+    "loss": 0.0,
+    "postprocess": 1.99
+  },
+  "per_class": {
+    "helmet": {
+      "precision": 0.8715,
+      "recall": 0.8432,
+      "mAP50": 0.9277,
+      "mAP50_95": 0.6661
+    },
+    "no_helmet": {
+      "precision": 0.7459,
+      "recall": 0.6776,
+      "mAP50": 0.8046,
+      "mAP50_95": 0.5592
+    },
+    "number_plate": {
+      "precision": 0.977,
+      "recall": 0.9855,
+      "mAP50": 0.9931,
+      "mAP50_95": 0.7882
+    }
+  }
+}

@@ -67,6 +67,9 @@ class DetectionResult:
         }
 
 
+TRIPLE_MODEL_KEEP = {"MORE_THAN_TWO_PERSONS", "USING_MOBILE"}
+
+
 class TrafficDetector:
     """
     Traffic object detector supporting PyTorch GPU/CPU inference,
@@ -79,6 +82,7 @@ class TrafficDetector:
         model_custom_path: Optional[str] = "models/traffic_custom.pt",
         model_helmet_path: Optional[str] = "models/helmet_model.pt",
         model_plate_path: Optional[str] = "models/plate_model.pt",
+        model_triple_path: Optional[str] = "models/triple_riding_best.pt",
         confidence: float = 0.35,
         iou: float = 0.45,
         device: str = "auto",
@@ -100,15 +104,31 @@ class TrafficDetector:
         # Unified Custom Model check (classes: 0 helmet, 1 no_helmet, 2 number_plate)
         self.model_custom = None
         self.has_custom_model = False
+        self.custom_imgsz = None
         if model_custom_path and Path(model_custom_path).exists():
             try:
                 self.model_custom = YOLO(model_custom_path)
                 self.has_custom_model = True
-                logger.info(f"Loaded unified custom model from {model_custom_path}")
+                self.custom_imgsz = getattr(self.model_custom, "overrides", {}).get("imgsz", None)
+                if not self.custom_imgsz or "832" in str(model_custom_path) or "custom" in str(model_custom_path):
+                    self.custom_imgsz = 832
+                logger.info(f"Loaded unified custom model from {model_custom_path} (trained imgsz: {self.custom_imgsz})")
             except Exception as e:
                 logger.warning(f"Failed to load custom model from {model_custom_path}: {e}")
         else:
             logger.info("Custom traffic model not found (models/traffic_custom.pt). Operating in Baseline Heuristic Mode.")
+
+        # Second custom model (team's triple-riding model). Only its triple-riding and phone classes are used;
+        # helmet / no-helmet / number plate always come from traffic_custom.pt (better accuracy there).
+        self.model_triple = None
+        self.triple_imgsz = None
+        if model_triple_path and Path(model_triple_path).exists():
+            try:
+                self.model_triple = YOLO(model_triple_path)
+                self.triple_imgsz = getattr(self.model_triple, "overrides", {}).get("imgsz", None)
+                logger.info(f"Loaded triple-riding model from {model_triple_path}")
+            except Exception as e:
+                logger.warning(f"Failed to load triple-riding model from {model_triple_path}: {e}")
 
         # Legacy custom models support / aliases for backwards compatibility
         self.helmet_model = self.model_custom
@@ -165,13 +185,15 @@ class TrafficDetector:
         # Run custom model ONCE per frame on full frame if loaded
         if self.has_custom_model and self.model_custom is not None:
             try:
-                custom_results = self.model_custom(
-                    frame,
-                    conf=self.confidence,
-                    iou=self.iou,
-                    device=self.device,
-                    verbose=False,
-                )
+                kwargs = {
+                    "conf": self.confidence,
+                    "iou": self.iou,
+                    "device": self.device,
+                    "verbose": False,
+                }
+                if self.custom_imgsz:
+                    kwargs["imgsz"] = self.custom_imgsz
+                custom_results = self.model_custom(frame, **kwargs)
                 if custom_results and len(custom_results) > 0 and custom_results[0].boxes is not None:
                     c_boxes = custom_results[0].boxes
                     c_names = getattr(self.model_custom, "names", {0: "helmet", 1: "no_helmet", 2: "number_plate"})
@@ -196,6 +218,31 @@ class TrafficDetector:
                         )
             except Exception as e:
                 logger.warning(f"Custom model inference error: {e}")
+
+        # Triple-riding model: keep only the classes the main custom model does not have
+        if self.model_triple is not None:
+            try:
+                kwargs = {"conf": self.confidence, "iou": self.iou, "device": self.device, "verbose": False}
+                if self.triple_imgsz:
+                    kwargs["imgsz"] = self.triple_imgsz
+                t_res = self.model_triple(frame, **kwargs)
+                if t_res and t_res[0].boxes is not None:
+                    t_names = getattr(self.model_triple, "names", {}) or {}
+                    for box in t_res[0].boxes:
+                        cls_id = int(box.cls[0].cpu().numpy())
+                        cls_name = t_names.get(cls_id, str(cls_id)) if isinstance(t_names, dict) else str(cls_id)
+                        if str(cls_name).upper() not in TRIPLE_MODEL_KEEP:
+                            continue
+                        detections.append(
+                            DetectionResult(
+                                bbox=box.xyxy[0].cpu().numpy().tolist(),
+                                confidence=float(box.conf[0].cpu().numpy()),
+                                class_id=100 + cls_id,
+                                class_name=cls_name,
+                            )
+                        )
+            except Exception as e:
+                logger.warning(f"Triple-riding model inference error: {e}")
 
         return detections
 

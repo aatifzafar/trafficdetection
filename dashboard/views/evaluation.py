@@ -55,12 +55,32 @@ def _accuracy():
         df = pd.DataFrame(rows)
         st.dataframe(df, hide_index=True, use_container_width=True,
                      column_config={c: st.column_config.NumberColumn(format="%.3f") for c in df.columns if c != "Model"})
+        st.markdown('<div class="small">Validation set of our merged dataset (803 images, 1085 labelled objects). '
+                    'Same data, 40 epochs, 640 px, seed 0 for every model, trained on a Colab T4 GPU. '
+                    'F1 = 2PR/(P+R).</div>', unsafe_allow_html=True)
+        per_rows = []
         for key, data in found.items():
-            per = data.get("per_class") or {}
-            if isinstance(per, dict) and per:
-                with st.expander(f"Per-class results · {mr.short(key)}"):
-                    st.dataframe(pd.DataFrame.from_dict(per, orient="index").reset_index().rename(columns={"index": "Class"}),
-                                 hide_index=True, use_container_width=True)
+            for cls, m in (data.get("per_class") or {}).items():
+                p, r = m.get("precision"), m.get("recall")
+                f1 = 2 * p * r / (p + r) if isinstance(p, (int, float)) and isinstance(r, (int, float)) and p + r else None
+                per_rows.append({"Class": cls.replace("_", " "), "Model": mr.short(key), "Precision": p, "Recall": r,
+                                 "F1": f1, "mAP@0.50": m.get("mAP50"), "mAP@0.50:0.95": m.get("mAP50_95")})
+        if per_rows:
+            st.markdown("**Per class**")
+            pdf = pd.DataFrame(per_rows).sort_values(["Class", "Model"])
+            st.dataframe(pdf, hide_index=True, use_container_width=True,
+                         column_config={c: st.column_config.NumberColumn(format="%.3f") for c in pdf.columns
+                                        if c not in ("Class", "Model")})
+        plots = [(k, Path("data/training_results") / k) for k in found if (Path("data/training_results") / k).is_dir()]
+        if plots:
+            with st.expander("Training curves and confusion matrices"):
+                for kind, title in (("results.png", "Training curves (loss and mAP per epoch)"),
+                                    ("confusion_matrix_normalized.png", "Confusion matrix (normalised)")):
+                    st.markdown(f"**{title}**")
+                    cols = st.columns(len(plots))
+                    for col, (k, d) in zip(cols, plots):
+                        if (d / kind).exists():
+                            col.image(str(d / kind), caption=mr.short(k), use_container_width=True)
 
 
 def _benchmark():

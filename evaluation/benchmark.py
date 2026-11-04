@@ -23,6 +23,7 @@ def run_benchmark(num_frames: int = 100, img_size: int = 640, model_path: str = 
     detector = TrafficDetector(
         model_traffic_path=model_path,
         model_custom_path=None,  # time the vehicle/person model only, so models are compared fairly
+        model_triple_path=None,
         confidence=settings.CONFIDENCE,
         iou=settings.IOU,
         device=settings.DEVICE,
