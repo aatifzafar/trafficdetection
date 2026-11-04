@@ -51,3 +51,8 @@ datasets/*
 datasets/raw/*
 !datasets/raw/README.md
 !datasets/raw/download_kaggle_datasets.py
+
+# Binaries & generated videos
+cloudflared.exe
+*.exe
+data/videos/output_*.mp4

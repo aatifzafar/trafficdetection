@@ -1,3 +1,4 @@
+from pathlib import Path
 import datetime
 
 import cv2
@@ -37,3 +38,37 @@ def test_helpers():
         assert False, "text files must be refused"
     except ValueError:
         pass
+
+
+def test_photo_upload_ai_auto_classification(tmp_path, monkeypatch):
+    monkeypatch.setattr(cs, "UPLOAD_DIR", tmp_path / "uploads")
+    monkeypatch.setattr(cs.settings, "EVIDENCE_DIR", str(tmp_path / "evidence"))
+    
+    # Use real validation image with triple riding
+    sample_path = Path("datasets/raw/05_triple_riding/valid/images/100_jpg.rf.1adbda0e75921ea1e7bd67534fee043d.jpg")
+    if not sample_path.exists():
+        return
+        
+    img_bytes = sample_path.read_bytes()
+    upload_path = cs.save_upload("proof_triple.jpg", img_bytes)
+    
+    # User mistakenly selected NO_HELMET instead of TRIPLE_RIDING
+    info = {
+        "violation_type": "NO_HELMET",
+        "plate": "KA01AB1234",
+        "location": "MG Road",
+        "name": "Test User",
+        "phone": "9999988888",
+    }
+    
+    res = cs.process_upload(upload_path, info)
+    
+    assert res["ai_detected"] is True
+    # Real image contains BOTH Triple Riding and No Helmet -> Both must be detected!
+    assert len(res["records"]) == 2
+    rec_types = {r["type"] for r in res["records"]}
+    assert "TRIPLE_RIDING" in rec_types
+    assert "NO_HELMET" in rec_types
+    for r in res["records"]:
+        assert r["confidence"] > 0.40
+        assert r["auto"] is True

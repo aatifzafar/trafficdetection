@@ -201,4 +201,4 @@ def _inspector(db, rows, chunk, cams):
             else:
                 ui.empty("Snapshot missing", "The evidence image for this record was not found on disk.")
             if ev["video"]:
-                st.video(ev["video"])
+                st.video(ev["video"], key=f"vio_video_{v.id}")

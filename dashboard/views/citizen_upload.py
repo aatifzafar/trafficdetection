@@ -12,9 +12,21 @@ from backend.services import geo_service
 from dashboard import ui
 from dashboard.data import session
 
-TYPES = ["NO_HELMET", "TRIPLE_RIDING", "RED_LIGHT_JUMP", "WRONG_WAY", "NO_SEATBELT",
-         "MOBILE_PHONE_WHILE_DRIVING", "CITIZEN_REPORT"]
-TYPE_LABEL = {**{t: rs.violation_label(t) for t in TYPES}, "CITIZEN_REPORT": "Something else / not sure"}
+TYPES = [
+    "AUTO_DETECT",
+    "TRIPLE_RIDING",
+    "NO_HELMET",
+    "RED_LIGHT_JUMP",
+    "WRONG_WAY",
+    "NO_SEATBELT",
+    "MOBILE_PHONE_WHILE_DRIVING",
+    "CITIZEN_REPORT",
+]
+TYPE_LABEL = {
+    "AUTO_DETECT": "✨ Auto-detect with AI (Recommended)",
+    **{t: rs.violation_label(t) for t in TYPES if t not in {"AUTO_DETECT", "CITIZEN_REPORT"}},
+    "CITIZEN_REPORT": "Something else / not sure",
+}
 
 
 def _local_to_utc(d: datetime.date, t: datetime.time) -> datetime.datetime:
@@ -81,12 +93,31 @@ def render():
         if res:
             with ui.panel():
                 st.markdown("### Thank you. Your proof was received.")
-                rows = "".join(
-                    f'<tr><td><code>{ui.esc(r["event_id"])}</code></td><td>{ui.violation_tag(r["type"], "CITIZEN")}</td>'
-                    f'<td>{ui.plate_html(r["plate"])}</td><td class="small">'
-                    f'{"Found by the AI (confidence " + format(r["confidence"], ".2f") + ")" if r["auto"] else "Your report, for an officer to check"}'
-                    f'</td></tr>' for r in res["records"])
-                st.markdown(f'<table class="data"><tr><th>Reference</th><th>Violation</th><th>Plate</th><th>How</th></tr>'
+                if len(res.get("records", [])) > 1:
+                    st.markdown(
+                        f'<div style="background:#FFF3E0;border-left:4px solid #FF9800;padding:10px 14px;border-radius:4px;margin-bottom:12px;">'
+                        f'<b style="color:#E65100;font-size:14px;">⚠️ Multiple Simultaneous Violations Detected ({len(res["records"])})</b><br>'
+                        f'<span style="font-size:12px;color:#333;">The AI vision model detected multiple concurrent traffic offenses in this evidence. Each violation has been recorded separately with its specific penalty for officer review.</span>'
+                        f'</div>',
+                        unsafe_allow_html=True,
+                    )
+                rows = ""
+                for r in res["records"]:
+                    if r["auto"]:
+                        pct = f"{r['confidence'] * 100:.1f}%"
+                        how_html = f'<b style="color:#2E7D32">🤖 Detected by AI ({pct} confidence)</b>'
+                        if r.get("claimed") and r["claimed"] not in {None, "AUTO_DETECT", r["type"]}:
+                            claimed_lbl = TYPE_LABEL.get(r["claimed"], r["claimed"])
+                            how_html += f'<br><span style="color:#E65100;font-size:12px">⚡ Auto-classified by AI (you reported: <i>{ui.esc(claimed_lbl)}</i>)</span>'
+                    else:
+                        how_html = '<span style="color:#666">Citizen report (forwarded for officer review)</span>'
+                    rows += (
+                        f'<tr><td><code>{ui.esc(r["event_id"])}</code></td>'
+                        f'<td>{ui.violation_tag(r["type"], "CITIZEN")}</td>'
+                        f'<td>{ui.plate_html(r["plate"])}</td>'
+                        f'<td class="small">{how_html}</td></tr>'
+                    )
+                st.markdown(f'<table class="data"><tr><th>Reference</th><th>Detected Violation</th><th>Plate</th><th>AI Analysis & Verification</th></tr>'
                             f'{rows}</table>', unsafe_allow_html=True)
                 checked = f"The AI checked {res['frames']} frames and found {res['detected']} violation(s). " if res["frames"] else ""
                 st.markdown(f'<div class="note-blue" style="margin-top:8px">{checked}Every record is now waiting in the '

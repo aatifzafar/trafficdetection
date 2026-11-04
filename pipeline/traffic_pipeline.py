@@ -24,7 +24,7 @@ from algorithms.calibration.camera_calibration import (
 )
 
 # Classes produced by the custom model; they are evidence, not objects to track
-CUSTOM_CLASSES = {"helmet", "no_helmet", "number_plate", "plate", "with_helmet", "without_helmet"}
+CUSTOM_CLASSES = {"helmet", "no_helmet", "number_plate", "plate", "with_helmet", "without_helmet", "more_than_two_persons", "using_mobile", "triple_riding", "triple_rider", "triple-riding-bikes", "normal"}
 OCR_EVERY_N_FRAMES = 8       # periodic plate reads for vehicles without a plate yet
 OCR_MIN_VEHICLE_PX = 80      # skip vehicles too small for a readable plate
 
@@ -236,6 +236,7 @@ class TrafficVisionPipeline:
             confirmed_violations,
             signal_state,
             start_time,
+            detections=detections,
         )
 
         latency = (time.time() - start_time) * 1000.0
@@ -512,6 +513,7 @@ class TrafficVisionPipeline:
         violations: List[Dict[str, Any]],
         signal_state: str,
         start_time: float,
+        detections: Optional[List[Any]] = None,
     ) -> np.ndarray:
         """Draws rich bounding boxes, labels, stop-lines, and telemetry."""
         h, w = frame.shape[:2]
@@ -534,14 +536,19 @@ class TrafficVisionPipeline:
                 2,
             )
 
-        violating_track_ids = {v["track_id"] for v in violations if "track_id" in v}
+        # Map track_id to violation types in this frame
+        track_violation_map = {}
+        for v in violations:
+            tid = v.get("track_id")
+            if tid is not None:
+                track_violation_map.setdefault(tid, []).append(v.get("violation_type", "VIOLATION"))
 
         # Draw Tracked Objects
         for obj in tracked_objects:
             x1, y1, x2, y2 = [int(p) for p in obj.bbox]
-            is_violating = obj.track_id in violating_track_ids
+            is_violating = obj.track_id in track_violation_map
 
-            # Color scheme: Red for violator, Yellow for person, Cyan for vehicles
+            # Color scheme: Red for violator, Yellow for person, Amber for vehicles
             if is_violating:
                 box_color = (0, 0, 255)
             elif obj.class_name == "person":
@@ -557,7 +564,8 @@ class TrafficVisionPipeline:
             if plate:
                 label += f" [{plate}]"
             if is_violating:
-                label += " [VIOLATION]"
+                v_names = "/".join(track_violation_map[obj.track_id])
+                label += f" [{v_names}]"
 
             # Badge background
             (tw, th), _ = cv2.getTextSize(label, cv2.FONT_HERSHEY_SIMPLEX, 0.48, 1)
@@ -572,6 +580,41 @@ class TrafficVisionPipeline:
                 1,
                 cv2.LINE_AA,
             )
+
+        # Draw Custom Model Detections (Triple Riding, Helmet, Phone)
+        if detections:
+            for d in detections:
+                cname = d.class_name.upper().replace(" ", "_").replace("-", "_")
+                dx1, dy1, dx2, dy2 = [int(p) for p in d.bbox]
+                badge_text = None
+                badge_color = None
+                if cname in {"MORE_THAN_TWO_PERSONS", "TRIPLE_RIDING", "TRIPLE_RIDER"}:
+                    badge_text = f"TRIPLE RIDING {int(d.confidence * 100)}%"
+                    badge_color = (0, 0, 255)
+                elif cname in {"WITHOUT_HELMET", "NO_HELMET"}:
+                    badge_text = f"NO HELMET {int(d.confidence * 100)}%"
+                    badge_color = (0, 69, 255)
+                elif cname in {"WITH_HELMET", "HELMET"}:
+                    badge_text = f"HELMET {int(d.confidence * 100)}%"
+                    badge_color = (0, 200, 0)
+                elif cname in {"USING_MOBILE", "MOBILE_PHONE"}:
+                    badge_text = f"PHONE USAGE {int(d.confidence * 100)}%"
+                    badge_color = (0, 165, 255)
+
+                if badge_text and badge_color:
+                    cv2.rectangle(frame, (dx1, dy1), (dx2, dy2), badge_color, 2)
+                    (bw, bh), _ = cv2.getTextSize(badge_text, cv2.FONT_HERSHEY_SIMPLEX, 0.45, 1)
+                    cv2.rectangle(frame, (dx1, max(0, dy1 - 20)), (dx1 + bw + 6, dy1), badge_color, -1)
+                    cv2.putText(
+                        frame,
+                        badge_text,
+                        (dx1 + 3, max(12, dy1 - 5)),
+                        cv2.FONT_HERSHEY_SIMPLEX,
+                        0.45,
+                        (255, 255, 255),
+                        1,
+                        cv2.LINE_AA,
+                    )
 
         # Draw Telemetry HUD
         hud_bg = frame[0:70, 0:420]

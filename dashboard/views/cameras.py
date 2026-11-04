@@ -240,7 +240,7 @@ def _render_camera_cards_wall(raw_cams):
 
                 if feed_mode == "▶️ Live Video Motion" and is_video_file:
                     # Autoplaying looping genuine CCTV video footage
-                    st.video(src, format="video/mp4", loop=True, autoplay=True, muted=True)
+                    st.video(src, format="video/mp4", loop=True, autoplay=True, muted=True, key=f"cam_video_{c.id}")
                 else:
                     # Snapshot fallback
                     frame = cameras_setup._grab_frame(src)
@@ -255,11 +255,15 @@ def _render_camera_cards_wall(raw_cams):
                             unsafe_allow_html=True,
                         )
 
+                loc_short = (c.location or "Junction").split(",")[0]
+                lat_val = float(c.latitude or 12.9716)
+                lon_val = float(c.longitude or 77.5946)
+
                 # CCTV Screen Footer Bezel
                 st.markdown(
                     f'<div style="background:#11161d;padding:3px 8px;border-bottom-left-radius:6px;border-bottom-right-radius:6px;'
                     f'font-family:monospace;font-size:10px;color:#9098a1;display:flex;justify-content:space-between;margin-bottom:8px;">'
-                    f'<span>{ui.esc(c.location.split(",")[0])}</span>'
+                    f'<span>{ui.esc(loc_short)}</span>'
                     f'<span>{now_str} IST</span>'
                     f'</div>',
                     unsafe_allow_html=True,
@@ -268,10 +272,10 @@ def _render_camera_cards_wall(raw_cams):
                 # Physical Location Details in Bengaluru
                 st.markdown(
                     f'<div class="small" style="color:var(--muted);margin-bottom:2px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;">'
-                    f'📍 <b>{ui.esc(c.location)}</b>'
+                    f'📍 <b>{ui.esc(c.location or "—")}</b>'
                     f'</div>'
                     f'<div class="small" style="color:var(--muted);margin-bottom:10px;">'
-                    f'GPS: <code>{c.latitude:.4f}° N, {c.longitude:.4f}° E</code> · Bengaluru'
+                    f'GPS: <code>{lat_val:.4f}° N, {lon_val:.4f}° E</code> · Bengaluru'
                     f'</div>',
                     unsafe_allow_html=True,
                 )

@@ -41,8 +41,11 @@ def _why(viol, meta) -> list:
         if extra.get("seat_role"):
             lines.append(f"Position: Seated as {extra['seat_role'].replace('_', ' ').title()}")
     elif t == "TRIPLE_RIDING":
-        if extra.get("rider_count"):
-            lines.append(f"Entity Count: {extra['rider_count']} riders spatially bound to the motorcycle in >= 6 of 10 frames")
+        mode = extra.get("detection_mode")
+        if mode == "DIRECT_MODEL":
+            lines.append("Detection Head: Dedicated trained model detected 'MORE_THAN_TWO_PERSONS' (Triple Riding) with high confidence")
+        elif extra.get("rider_count"):
+            lines.append(f"Spatial Tracking: {extra['rider_count']} riders spatially bound to motorcycle chassis")
     elif t == "RED_LIGHT_JUMP":
         lines.append(f"Signal State: Signal confirmed as {extra.get('signal_state', 'RED').upper()} at the exact moment of crossing")
     elif t == "WRONG_WAY":
@@ -50,8 +53,17 @@ def _why(viol, meta) -> list:
             lines.append(f"Trajectory Vector: Motion deviated by {extra['angle_deviation_deg']}° from designated corridor angle")
     if extra.get("light"):
         lines.append("Ambient Lighting: " + ("Night / Low-light illumination" if extra["light"] == "night" else "Daylight CCTV illumination"))
+    concurrent = [c for c in extra.get("concurrent_violations", []) if c != viol.violation_type]
+    if concurrent:
+        c_names = ", ".join(TITLES.get(c, c) for c in concurrent)
+        lines.append(f"⚠️ Concurrent Offense: Vehicle was simultaneously flagged for {c_names}")
+
     if viol.source == "CITIZEN":
-        if extra.get("citizen_manual"):
+        if extra.get("auto_classified") and extra.get("claimed_violation") and extra.get("claimed_violation") not in {None, "AUTO_DETECT", viol.violation_type}:
+            lines.append(f"AI Auto-Classification: Citizen reported '{extra['claimed_violation']}', but AI detected '{viol.violation_type}' with {int(viol.confidence * 100)}% confidence")
+        elif extra.get("auto_classified") or (viol.confidence and viol.confidence > 0):
+            lines.append(f"AI Computer Vision: Automatically detected and verified from citizen upload ({int(viol.confidence * 100)}% confidence)")
+        elif extra.get("citizen_manual"):
             lines.append("Citizen Upload: Manually reported by app user — review photographic evidence closely")
         else:
             lines.append("Automated Detection: Processed from video footage submitted via citizen portal")
@@ -234,7 +246,7 @@ def render():
 
                 if ev.get("video"):
                     with st.expander("📹 Evidence Video Clip (Multi-frame Context)", expanded=False):
-                        st.video(ev["video"])
+                        st.video(ev["video"], key=f"rev_video_{rec.get('id', 0)}")
 
             # Plate Verification & Quick Correction Studio
             with ui.panel():

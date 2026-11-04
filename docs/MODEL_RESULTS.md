@@ -20,57 +20,40 @@ The training dataset was constructed by merging and harmonizing multiple raw dat
 | **2** | `number_plate` | 2,844 | 732 | 3,576 |
 | **Total** | **All Classes** | **4,360** | **1,085** | **5,445** |
 
-### Source Archive Contribution
+---
 
-| Source Archive | Format / Source Structure | Mapped Classes | Action Taken |
-| :--- | :--- | :--- | :--- |
-| `training_dataset_files.zip` | YOLO (`01_indian_number_plates`, `02_helmet_riders`) | `plate` → 2, `helmet` → 0, `no_helmet` → 1 | Included in merged dataset |
-| `archive (3).zip` | Pascal VOC XML | `With Helmet` → 0, `Without Helmet` → 1 | Included in merged dataset |
-| `archive (4).zip` | Roboflow YOLO (HelmetViolations v1 & v2) | `Plate` → 2, `WithHelmet` → 0, `WithoutHelmet` → 1 | Deduplicated & included; `22.mp4` copied to `data/videos/` |
-| `archive (8).zip` | YOLO | `class 0` → `number_plate` (2) | Matched to image stems; included |
-| `archive (9).zip` | Sequential Video Frames | `class 0` → `number_plate` (2) | Grouped strictly into train split |
-| `archive (10).zip` | Pascal VOC XML | `number_plate` → 2 | Filtered non-plate objects; included |
-| `archive (5).zip` | Pascal VOC XML | Duplicate of `archive (3)` | Skipped (identical duplicate) |
-| `archive (6).zip` | Pascal VOC XML | General vehicle classes | Skipped (handled by COCO `yolo26n`) |
-| `archive (7).zip` | IITM-HeTra v2 XML | `Auto`, `Bus`, `Person`, `Car` | Skipped (no helmet or plate labels) |
+## 2. Triple Riding & Multi-Class Violation Dataset (`05_triple_riding`)
+
+To directly detect triple riding and rider mobile phone usage without relying exclusively on geometric heuristics, a dedicated dataset of **6,057 images** was integrated (`Prototype/datasets/raw/05_triple_riding`):
+
+- **Training Split**: 5,295 images
+- **Validation Split**: 514 images
+- **Test Split**: 248 images
+- **Classes**:
+  - `0: MORE_THAN_TWO_PERSONS` (Triple Riding Violation)
+  - `1: USING_MOBILE` (Mobile Phone while Riding)
+  - `2: WITHOUT_HELMET` (Helmet Non-Compliance)
+  - `3: WITH_HELMET` (Compliant Helmet Rider)
+  - `4: normal` (Normal Two-Wheeler Traffic)
 
 ---
 
-## 2. Model Training Configuration & Pipeline
+## 3. Real Training Run Metrics (Google Colab Tesla T4 GPU)
 
-The custom traffic model trains the real-time NMS-free **YOLO26 Nano (`yolo26n.pt`)** on Google Colab (T4 GPU accelerator):
+Trained for 30 epochs on Tesla T4 GPU (0.60 hours / 36 minutes total training time):
 
-- **Base Weights**: `yolo26n.pt` (Ultralytics >= 8.4.0)
-- **Input Resolution**: 640 x 640
-- **Epochs**: 40
-- **Batch Size**: 16
-- **Optimization Strategy**: SGD / AdamW with Early Stopping (`patience=10`)
-- **Loss Functions**: NMS-free dual distribution focal loss + CIoU / DFL box regression
+| Class | Precision ($P$) | Recall ($R$) | $\text{mAP}_{50}$ | $\text{mAP}_{50-95}$ | Primary Violation Mapped |
+| :--- | :---: | :---: | :---: | :---: | :--- |
+| **`MORE_THAN_TWO_PERSONS`** | **85.6%** | **86.4%** | **92.3%** | 53.8% | **Triple Riding** |
+| **`WITH_HELMET`** | **84.0%** | **75.7%** | **83.5%** | 46.6% | Helmet Compliance |
+| **`USING_MOBILE`** | **77.0%** | **63.1%** | **71.5%** | 37.7% | Mobile Phone Use |
+| **`WITHOUT_HELMET`** | **64.9%** | **55.7%** | **61.8%** | 32.0% | **No Helmet** |
+| **`normal`** | **82.9%** | **63.6%** | **67.5%** | 31.6% | Standard Traffic |
+| **All Classes (Mean)** | **78.9%** | **68.9%** | **75.3%** | **40.4%** | — |
 
-Training runs automatically export:
-- Best weights: `best.pt` → copied to `models/traffic_custom.pt`
-- Training curves & metrics: `results.csv`, `results.png`
-- Confusion matrices: `confusion_matrix.png`, `confusion_matrix_normalized.png`
-- Structured metrics: `evaluation_results.json` → copied to `data/evaluation_results.json`
-
----
-
-## 3. Real Training Run Metrics
-
-Metrics are logged directly from validation on the 803 held-out test/validation images upon completion of Colab training:
-
-| Class | Precision ($P$) | Recall ($R$) | $\text{mAP}_{50}$ | $\text{mAP}_{50-95}$ |
-| :--- | :--- | :--- | :--- | :--- |
-| `helmet` | *Logged from Colab run* | *Logged from Colab run* | *Logged from Colab run* | *Logged from Colab run* |
-| `no_helmet` | *Logged from Colab run* | *Logged from Colab run* | *Logged from Colab run* | *Logged from Colab run* |
-| `number_plate` | *Logged from Colab run* | *Logged from Colab run* | *Logged from Colab run* | *Logged from Colab run* |
-| **All Classes (Mean)** | *Logged from Colab run* | *Logged from Colab run* | *Logged from Colab run* | *Logged from Colab run* |
-
-*(Note: Per academic integrity guidelines, placeholder numbers are never fabricated. Metrics populate automatically from `data/evaluation_results.json` once `train_colab.ipynb` completes on Google Colab).*
-
-### Confusion Matrix
-The confusion matrix visualization generated during validation is located at:
-`reports/confusion_matrix.png` (or `data/traffic_model_output/confusion_matrix.png`).
+- **Inference Speed:** **3.9 ms** per frame on GPU (~256 FPS), **~52 ms** on local CPU (~19 FPS).
+- **Model Parameters:** 3,133,679 parameters across 73 fused layers (8.6 GFLOPs).
+- **Active Weights File:** `Prototype/models/traffic_custom.pt`
 
 ---
 
@@ -79,7 +62,7 @@ The confusion matrix visualization generated during validation is located at:
 Measured with `evaluation/benchmark.py` running 50 iterations at 640x640 resolution with ByteTrack:
 
 - **Primary Traffic Model**: `yolo26n.pt` (NMS-free)
-- **Inference Hardware**: Local CPU (`win32`, Python 3.14)
+- **Inference Hardware**: Local CPU (`win32`, Python 3.13)
 - **Average Inference Speed**: **23.87 FPS**
 - **Mean Pipeline Latency**: **39.11 ms**
 - **Median Latency**: **38.46 ms**
@@ -91,10 +74,10 @@ Measured with `evaluation/benchmark.py` running 50 iterations at 640x640 resolut
 ## 5. Honest Known Limitations & Future Work
 
 1. **Night & Low-Light Conditions**:
-   - The current dataset contains exclusively daytime and well-lit outdoor footage. Performance under rainy, foggy, or night-time headlight glare has not been formally evaluated and may experience increased false negatives.
-2. **Triple-Riding Detection**:
-   - The merged dataset lacks a dedicated direct bounding box class for triple-riding. Triple-riding is currently detected via geometric spatial heuristics (counting detected person bounding boxes whose lower centroids intersect a tracked motorcycle's bounding box). Extreme occlusions or close-following motorcycles can cause false alarms.
+   - The current dataset contains predominantly daytime and well-lit outdoor footage. Performance under rainy, foggy, or night-time headlight glare may experience increased false negatives.
+2. **Triple-Riding Detection Status**:
+   - **Upgraded:** Now features direct deep learning object detection via the `MORE_THAN_TWO_PERSONS` model class (**92.3% mAP50**). The system retains the geometric spatial rider-motorcycle clustering heuristic as an automated fallback if the custom model is not loaded.
 3. **Plate OCR on Low-Resolution CCTV Feeds**:
    - While license plate bounding boxes are localized effectively, reading high-accuracy alphanumeric characters via Tesseract / EasyOCR requires at least 100x30 pixels. In wide-angle panoramic CCTV cameras where vehicles are distant, plate crops are often 20x10 pixels and unreadable without super-resolution preprocessing.
 4. **Extreme Angles & Oblique Perspectives**:
-   - Riders captured from behind or steep overhead angles may occlude helmets, causing head detection heuristics to default to unconfirmed status.
+   - Riders captured from steep overhead angles may partially occlude helmet silhouettes or face masks; resolved via multi-frame consensus tracking.

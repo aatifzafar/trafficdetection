@@ -45,6 +45,39 @@ def test_triple_riding_rule_temporal_confirmation():
     assert len(v4) == 0, "Duplicate violation should be suppressed during cooldown"
 
 
+def test_triple_riding_direct_model_detection():
+    from algorithms.detection.detector import DetectionResult
+    rule = TripleRidingRule(temporal_window=5, min_positive_frames=3, cooldown_seconds=5.0)
+
+    # Direct custom model detection (Method 2)
+    dt = DetectionResult(
+        class_id=0,
+        class_name="MORE_THAN_TWO_PERSONS",
+        confidence=0.88,
+        bbox=[150.0, 150.0, 300.0, 400.0]
+    )
+
+    context = {
+        "motorcycle_groups": [],
+        "detections": [dt],
+        "frame_idx": 1,
+        "fps": 25.0,
+    }
+
+    # Frames 1 and 2: accumulating evidence in temporal window
+    assert len(rule.evaluate(context)) == 0
+    context["frame_idx"] = 2
+    assert len(rule.evaluate(context)) == 0
+
+    # Frame 3: threshold reached -> Confirmed!
+    context["frame_idx"] = 3
+    viols = rule.evaluate(context)
+    assert len(viols) == 1
+    assert viols[0]["violation_type"] == "TRIPLE_RIDING"
+    assert viols[0]["confidence"] == 0.88
+    assert viols[0]["extra"]["detection_mode"] == "DIRECT_MODEL"
+
+
 def test_red_light_stop_line_intersection():
     # Stop line at Y = 500 from X=100 to X=900
     stop_line = {"x1": 100.0, "y1": 500.0, "x2": 900.0, "y2": 500.0}

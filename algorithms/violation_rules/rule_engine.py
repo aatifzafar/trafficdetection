@@ -40,7 +40,7 @@ class TrafficRuleEngine:
 
         if v_cfg.get("triple_riding", True):
             self.rules["triple_riding"] = TripleRidingRule(
-                temporal_window=w, min_positive_frames=min_p, cooldown_seconds=cd
+                temporal_window=w, min_positive_frames=min(4, min_p), cooldown_seconds=cd
             )
 
         if v_cfg.get("red_light", True):
