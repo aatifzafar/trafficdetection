@@ -380,10 +380,10 @@ def classify_citizen_photo(img: np.ndarray, claimed_viol: Optional[str] = None) 
                     except Exception as e:
                         logger.debug(f"Direct crop seatbelt inference error: {e}")
 
-        if not sb_checked and claimed_viol in {"NO_HELMET", "TRIPLE_RIDING"}:
+        if not sb_checked:
             for d in dets:
                 cname = d.class_name.upper().replace(" ", "_")
-                if cname in {"WITHOUT_HELMET", "NO_HELMET"} and claimed_viol == "NO_HELMET" and d.confidence >= 0.60:
+                if cname in {"WITHOUT_HELMET", "NO_HELMET"} and d.confidence >= 0.40:
                     box_draw_list.append((d.bbox, "NO HELMET", d.confidence, True))
                     violation_candidates.append({
                         "type": "NO_HELMET",
@@ -394,6 +394,22 @@ def classify_citizen_photo(img: np.ndarray, claimed_viol: Optional[str] = None) 
                 elif cname in {"WITH_HELMET", "HELMET"}:
                     box_draw_list.append((d.bbox, "HELMET", d.confidence, False))
                     compliance_notes.append("Rider verified wearing HELMET")
+                elif cname in {"MORE_THAN_TWO_PERSONS", "TRIPLE_RIDING", "TRIPLE_RIDER"}:
+                    box_draw_list.append((d.bbox, "TRIPLE RIDING", d.confidence, True))
+                    violation_candidates.append({
+                        "type": "TRIPLE_RIDING",
+                        "confidence": d.confidence,
+                        "bbox": d.bbox,
+                        "class": cname,
+                    })
+                elif cname in {"USING_MOBILE", "MOBILE_PHONE"}:
+                    box_draw_list.append((d.bbox, "PHONE USAGE", d.confidence, True))
+                    violation_candidates.append({
+                        "type": "MOBILE_PHONE_WHILE_DRIVING",
+                        "confidence": d.confidence,
+                        "bbox": d.bbox,
+                        "class": cname,
+                    })
 
     # -------------------------------------------------------------
     # 4. RENDER ANNOTATED IMAGE
