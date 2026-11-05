@@ -431,4 +431,36 @@ def test_11_deep_learning_bi_lstm_model_inference():
     assert np.argmax(probs_legal) == 0, "Argmax class output must be 0 (COMPLIANT_FLOW)"
 
 
+# ==============================================================================
+# TEST 12: YOLO Wrong-Way Driving Object Detection Model Verification
+# Expected: wrong_way_yolo.pt loads in YOLO, detects classes ['right-side', 'wrong-side']
+# ==============================================================================
+def test_12_yolo_wrong_way_model_inference():
+    import glob
+    from ultralytics import YOLO
+    from algorithms.violation_rules.photo_orientation_analyzer import PhotoOrientationAnalyzer
+
+    model_path = Path("models/wrong_way_yolo.pt")
+    assert model_path.exists(), "models/wrong_way_yolo.pt checkpoint must exist"
+
+    model = YOLO(str(model_path))
+    class_names = list(model.names.values())
+    assert "wrong-side" in class_names or "wrong_side" in class_names, f"Expected wrong-side class, got {class_names}"
+    assert "right-side" in class_names or "right_side" in class_names, f"Expected right-side class, got {class_names}"
+
+    # Verify inference on dataset test split
+    test_imgs = glob.glob("datasets/wrong_way_roboflow/test/images/*.jpg")
+    if test_imgs:
+        sample_img = test_imgs[0]
+        preds = model.predict(sample_img, conf=0.30, verbose=False)[0]
+        assert len(preds.boxes) > 0, f"Expected vehicle detections on test image {sample_img}"
+        top_conf = float(preds.boxes.conf[0])
+        assert top_conf > 0.50, f"Expected confident vehicle detection, got {top_conf}"
+
+    # Verify PhotoOrientationAnalyzer integrates the YOLO model
+    analyzer = PhotoOrientationAnalyzer(yolo_model_path=str(model_path))
+    assert analyzer.yolo_model is not None, "Analyzer should have initialized YOLO model"
+
+
+
 

@@ -27,6 +27,7 @@ Core Principles:
 """
 
 import math
+from pathlib import Path
 from typing import Any, Dict, List, Optional, Tuple
 import cv2
 import numpy as np
@@ -35,8 +36,19 @@ import numpy as np
 class PhotoOrientationAnalyzer:
     """Color-agnostic vehicle orientation and carriageway consensus analyzer."""
 
-    def __init__(self, min_consensus_ratio: float = 0.50):
+    def __init__(self, min_consensus_ratio: float = 0.50, yolo_model_path: str = "models/wrong_way_yolo.pt"):
         self.min_consensus_ratio = min_consensus_ratio
+        self.yolo_model_path = Path(yolo_model_path)
+        self.yolo_model = None
+        self._load_yolo_model()
+
+    def _load_yolo_model(self):
+        if self.yolo_model_path.exists():
+            try:
+                from ultralytics import YOLO
+                self.yolo_model = YOLO(str(self.yolo_model_path))
+            except Exception:
+                self.yolo_model = None
 
     def compute_vehicle_orientation(self, crop: np.ndarray, class_name: str = "car") -> Tuple[str, float, Dict[str, Any]]:
         """
@@ -267,6 +279,35 @@ class PhotoOrientationAnalyzer:
         else:
             dominant_orientation = "FACING_CAMERA" if front_count >= rear_count else "FACING_AWAY"
             consensus_text = f"All {len(analyzed_vehicles)} vehicles aligned"
+
+        # 4. Deep Learning YOLO Wrong-Way Auxiliary Verification
+        if self.yolo_model is not None and len(analyzed_vehicles) > 0:
+            try:
+                preds = self.yolo_model.predict(image, conf=0.35, verbose=False)[0]
+                for box in preds.boxes:
+                    cls_id = int(box.cls[0])
+                    cls_name = self.yolo_model.names.get(cls_id, "")
+                    if "wrong" in cls_name.lower():
+                        bx1, by1, bx2, by2 = [float(p) for p in box.xyxy[0]]
+                        bconf = float(box.conf[0])
+                        for v in analyzed_vehicles:
+                            vx1, vy1, vx2, vy2 = v["bbox"]
+                            ix1 = max(bx1, vx1)
+                            iy1 = max(by1, vy1)
+                            ix2 = min(bx2, vx2)
+                            iy2 = min(by2, vy2)
+                            inter = max(0, ix2 - ix1) * max(0, iy2 - iy1)
+                            area_b = (bx2 - bx1) * (by2 - by1)
+                            area_v = (vx2 - vx1) * (vy2 - vy1)
+                            iou = inter / max(1.0, area_b + area_v - inter)
+                            if iou > 0.25:
+                                v["yolo_wrong_side"] = True
+                                v["yolo_conf"] = round(bconf, 3)
+                                if not v.get("is_outlier"):
+                                    v["is_outlier"] = True
+                                    outlier_candidates.append(v)
+            except Exception:
+                pass
 
         return {
             "has_outlier": len(outlier_candidates) > 0,

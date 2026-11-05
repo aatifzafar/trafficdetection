@@ -1,0 +1,63 @@
+{
+  "model": "wrong_way_yolo.pt",
+  "architecture": "Ultralytics YOLO (YOLOv8n / YOLO26n) fine-tuned on Wrong-Way Driving Dataset",
+  "image_size": 640,
+  "overall": {
+    "precision": 0.9361,
+    "recall": 0.9396,
+    "F1": 0.9378,
+    "mAP50": 0.9694,
+    "mAP50_95": 0.7422
+  },
+  "per_class": {
+    "right_side": {
+      "precision": 0.8974,
+      "recall": 0.9449,
+      "F1": 0.9206,
+      "mAP50": 0.9639,
+      "mAP50_95": 0.7142
+    },
+    "wrong_side": {
+      "precision": 0.9749,
+      "recall": 0.9342,
+      "F1": 0.9541,
+      "mAP50": 0.975,
+      "mAP50_95": 0.7701
+    }
+  },
+  "test": {
+    "overall": {
+      "precision": 0.9173,
+      "recall": 0.8857,
+      "F1": 0.9012,
+      "mAP50": 0.9523,
+      "mAP50_95": 0.7151
+    },
+    "per_class": {
+      "right_side": {
+        "precision": 0.9052,
+        "recall": 0.9253,
+        "F1": 0.9151,
+        "mAP50": 0.9607,
+        "mAP50_95": 0.7069
+      },
+      "wrong_side": {
+        "precision": 0.9294,
+        "recall": 0.8462,
+        "F1": 0.8858,
+        "mAP50": 0.9439,
+        "mAP50_95": 0.7232
+      }
+    }
+  },
+  "split_counts": {
+    "train": 426,
+    "val": 91,
+    "test": 91
+  },
+  "classes": {
+    "0": "right-side (Normal compliant traffic flow)",
+    "1": "wrong-side (Wrong-Way driving violation counterflow)"
+  },
+  "limitations": "Model performs visual detection of vehicle heading against designated corridor. For photo uploads, detections are flagged as UNVERIFIED pending review. For video feeds, combined with ByteTrack multi-object tracking and corridor kinematics."
+}
