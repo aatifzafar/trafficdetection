@@ -204,6 +204,8 @@ class PhotoOrientationAnalyzer:
 
         # 3. Carriageway Heading & Conflict Resolution
         total_directional = front_count + rear_count
+        dominant_orientation = "UNKNOWN"
+        consensus_text = "No directional vehicles detected"
         outlier_candidates = []
         has_conflict = (front_count > 0 and rear_count > 0)
 
@@ -234,41 +236,37 @@ class PhotoOrientationAnalyzer:
                         v["is_outlier"] = True
                         outlier_candidates.append(v)
                         break
-                        if v["orientation"] == "FACING_CAMERA":
-                            v["is_outlier"] = True
-                            outlier_candidates.append(v)
-                            break
 
-            elif total_directional >= 1 and calibrated_lane_vector:
-                # Single direction: compare against calibrated camera lane flow
-                if calibrated_lane_vector[1] > 0.3:
-                    dominant_orientation = "FACING_CAMERA"
-                    opposing_orientation = "FACING_AWAY"
-                else:
-                    dominant_orientation = "FACING_AWAY"
-                    opposing_orientation = "FACING_CAMERA"
+        elif total_directional >= 1 and calibrated_lane_vector:
+            # Single direction: compare against calibrated camera lane flow
+            if calibrated_lane_vector[1] > 0.3:
+                dominant_orientation = "FACING_CAMERA"
+                opposing_orientation = "FACING_AWAY"
+            else:
+                dominant_orientation = "FACING_AWAY"
+                opposing_orientation = "FACING_CAMERA"
 
-                for v in analyzed_vehicles:
-                    if v["orientation"] == opposing_orientation:
-                        v["is_outlier"] = True
-                        outlier_candidates.append(v)
-                consensus_text = f"Calibrated flow: {dominant_orientation}"
-            elif reported_violation == "WRONG_WAY" and analyzed_vehicles:
-                if len(analyzed_vehicles) == 1:
-                    v = analyzed_vehicles[0]
+            for v in analyzed_vehicles:
+                if v["orientation"] == opposing_orientation:
                     v["is_outlier"] = True
                     outlier_candidates.append(v)
-                    dominant_orientation = "OPPOSING_REPORTED"
-                    consensus_text = f"Reported candidate ({v['orientation']}) flagged for officer review"
-                else:
-                    dominant_orientation = "REPORTED_SUSPECT"
-                    consensus_text = f"Reported wrong-way corridor: {len(analyzed_vehicles)} vehicle(s) evaluated"
-                    best_v = max(analyzed_vehicles, key=lambda x: x["confidence"])
-                    best_v["is_outlier"] = True
-                    outlier_candidates.append(best_v)
+            consensus_text = f"Calibrated flow: {dominant_orientation}"
+        elif reported_violation == "WRONG_WAY" and analyzed_vehicles:
+            if len(analyzed_vehicles) == 1:
+                v = analyzed_vehicles[0]
+                v["is_outlier"] = True
+                outlier_candidates.append(v)
+                dominant_orientation = "OPPOSING_REPORTED"
+                consensus_text = f"Reported candidate ({v['orientation']}) flagged for officer review"
             else:
-                dominant_orientation = "FACING_CAMERA" if front_count >= rear_count else "FACING_AWAY"
-                consensus_text = f"All {len(analyzed_vehicles)} vehicles aligned"
+                dominant_orientation = "REPORTED_SUSPECT"
+                consensus_text = f"Reported wrong-way corridor: {len(analyzed_vehicles)} vehicle(s) evaluated"
+                best_v = max(analyzed_vehicles, key=lambda x: x["confidence"])
+                best_v["is_outlier"] = True
+                outlier_candidates.append(best_v)
+        else:
+            dominant_orientation = "FACING_CAMERA" if front_count >= rear_count else "FACING_AWAY"
+            consensus_text = f"All {len(analyzed_vehicles)} vehicles aligned"
 
         return {
             "has_outlier": len(outlier_candidates) > 0,

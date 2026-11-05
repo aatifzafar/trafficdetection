@@ -415,6 +415,7 @@ def classify_citizen_photo(img: np.ndarray, claimed_viol: Optional[str] = None) 
     # 5. CONSTRUCT EXPLANATION AND UNIQUE VIOLATIONS
     # -------------------------------------------------------------
     unique_violations: Dict[str, float] = {}
+    candidate_details: Dict[str, Any] = {}
     for cand in violation_candidates:
         t = cand["type"]
         unique_violations[t] = max(unique_violations.get(t, 0.0), cand["confidence"])
@@ -632,6 +633,7 @@ def process_upload(upload: Path, info: Dict[str, Any],
     photo_ai_conf = 0.0
     photo_annotated = None
     unique_violations: Dict[str, float] = {}
+    candidate_details: Dict[str, Any] = {}
 
     claimed_viol = info.get("violation_type")
     info["claimed_violation"] = claimed_viol
