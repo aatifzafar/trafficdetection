@@ -73,3 +73,10 @@ models/*.pt
 # Seatbelt datasets, test samples & outputs
 data/seatbelt/
 data/seatbelt/test_samples/
+
+# LaTeX build artifacts
+*.aux
+*.log
+*.out
+*.toc
+*.synctex.gz

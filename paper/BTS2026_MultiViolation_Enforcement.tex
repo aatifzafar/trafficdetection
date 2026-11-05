@@ -1,0 +1,438 @@
+%% =====================================================================
+%% BTS 2026 / IEEE Conference Manuscript
+%% Edge-Deployable Multi-Violation Traffic Enforcement System
+%% Compile: pdflatex -> bibliography is inline (thebibliography), so a
+%% single pdflatex run twice is sufficient. Works on Overleaf as-is.
+%% =====================================================================
+\documentclass[conference]{IEEEtran}
+\IEEEoverridecommandlockouts
+
+\usepackage{cite}
+\usepackage{amsmath,amssymb,amsfonts}
+\usepackage{algorithm}
+\usepackage{algpseudocode}
+\usepackage{graphicx}
+\usepackage{textcomp}
+\usepackage{xcolor}
+\usepackage{booktabs}
+\usepackage{multirow}
+\usepackage{url}
+
+\def\BibTeX{{\rm B\kern-.05em{\sc i\kern-.025em b}\kern-.08em
+    T\kern-.1667em\lower.7ex\hbox{E}\kern-.125emX}}
+
+\begin{document}
+
+\title{Edge-Deployable Multi-Violation Traffic Enforcement System for Heterogeneous Urban Mobility Using YOLO26 and Spatio-Temporal Trajectory Networks}
+
+\author{
+\IEEEauthorblockN{Mohammed Aatif Zafar\IEEEauthorrefmark{1},
+Vivek H\IEEEauthorrefmark{1},
+Sanjay N\IEEEauthorrefmark{1},
+Pavan Urs B K\IEEEauthorrefmark{1},
+Dr. Jayabhaduri R\IEEEauthorrefmark{2},
+Dr. M. Selvam\IEEEauthorrefmark{3}}
+\IEEEauthorblockA{\IEEEauthorrefmark{1}Students, Reg. Nos. 2411021061282, 2411021061234, 2411021061200, 2411021061272\\
+\IEEEauthorrefmark{2}Mentor / Supervisor, \IEEEauthorrefmark{3}Professor\\
+Department of Computer Science \& Engineering, Alliance School of Advanced Computing (ASAC)\\
+Alliance University, Bengaluru, Karnataka, India\\
+Email: zafarkaifee@gmail.com, \{vivek.h, sanjay.n, pavan.urs\}@alliance.edu.in}
+}
+
+\maketitle
+
+%% ---------------------------------------------------------------------
+\begin{abstract}
+Automated traffic enforcement in Indian metropolitan corridors is complicated by dense, non-lane-disciplined, heterogeneous traffic in which motorcycles, auto-rickshaws, buses, and passenger cars interleave at close range. Between January and April 2025, the Bengaluru Traffic Police recorded more than 9.8~lakh helmet violations, 2.5~lakh seatbelt infractions, and 2.0~lakh signal jumps, a volume that manual policing cannot address safely or at scale. Existing vision systems typically target a single violation, issue duplicate notices for vehicles that linger in the field of view, and degrade under multi-rider occlusion. This paper presents an edge-deployable, multi-violation enforcement framework built on an NMS-free YOLO26-Nano detector (2.58\,M parameters, 5.9\,GFLOPs), ByteTrack multi-object tracking, and a modular rule engine covering triple riding, helmet non-compliance, seatbelt non-use, wrong-way driving, and licence-plate recognition. A Bidirectional LSTM with temporal attention classifies trajectory kinematics, while frame-synchronised cooldown timers and $N$-of-$M$ temporal voting suppress duplicate e-challans. Relative to a YOLOv8n baseline, the proposed detector reduces computation by 33.7\% and GPU latency by 26.9\% while raising mAP$_{50}$ from 90.9\% to 92.2\%; a high-resolution 832\,px variant reaches 94.8\%. Every detection produces an evidentiary dossier that requires officer adjudication, which keeps a human in the loop and keeps the system consistent with Indian Motor Vehicles Act provisions.
+\end{abstract}
+
+\begin{IEEEkeywords}
+Intelligent Transportation Systems, YOLO26, Traffic Violation Detection, Deep Learning, ByteTrack, Automatic Number Plate Recognition, Bi-LSTM, Edge Computing
+\end{IEEEkeywords}
+
+%% ---------------------------------------------------------------------
+\section{Introduction}
+
+Road traffic injuries remain a leading cause of preventable death in India, and two-wheeler occupants account for the largest share of fatalities among road-user categories~\cite{morth2022}. Bengaluru illustrates the enforcement challenge in an extreme form. In the first four months of 2025 alone, the Bengaluru Traffic Police (BTP) reported over 9.8~lakh helmet violations, 2.5~lakh seatbelt infractions, and 2.0~lakh signal-jump offences~\cite{btp2025}. These figures are lower bounds, because they count only violations that were observed and recorded. Physical checkpoints expose officers to moving traffic, induce congestion at the point of enforcement, and cover only a small fraction of the road network.
+
+Computer-vision enforcement promises scale, but systems designed for lane-disciplined Western traffic transfer poorly to Indian roads. The India Driving Dataset (IDD)~\cite{varma2019idd}, collected in Bengaluru and Hyderabad, documents the defining characteristics: ambiguous lane boundaries, a long tail of vehicle categories, and frequent partial occlusion. Within this setting, we identify three recurring failure modes in existing deployments:
+
+\begin{enumerate}
+\item \textbf{Single-violation scope.} Most published systems detect one violation class, typically helmet non-use~\cite{dahiya2016,siebert2020,soltanikazemi2023}. Deploying several independent single-purpose pipelines multiplies compute cost and complicates evidence management.
+\item \textbf{Duplicate penalisation.} Frame-level detectors fire on every frame in which a violation is visible. A motorcycle that is stationary at a red light for 60\,s can produce hundreds of positive detections, and without identity-aware suppression each one becomes a candidate e-challan.
+\item \textbf{Occlusion and illumination fragility.} When three riders sit on one motorcycle, the pillion riders are often hidden behind the driver. Rider counting by person detection alone then under-counts, and the triple-riding violation is missed.
+\end{enumerate}
+
+This paper addresses these failure modes with a unified, edge-deployable framework. Its principal contributions are:
+
+\begin{itemize}
+\item A custom-trained YOLO26-Nano detector, using an end-to-end NMS-free head, that requires 33.7\% fewer FLOPs than YOLOv8n while improving mAP$_{50}$, with dual-resolution (640/832\,px) training for small, distant targets such as licence plates and helmets.
+\item A \emph{dual-mode} triple-riding detector that fuses a direct multi-rider class with geometric rider-to-motorcycle containment clustering, recovering violations when riders occlude one another.
+\item A Bi-LSTM with temporal attention over ByteTrack trajectories for kinematic wrong-way detection, complemented by an orientation-consensus analyser for single citizen-submitted photographs.
+\item An identity-aware anti-spam layer that combines $N$-of-$M$ temporal voting with video-time cooldown timers and prevents duplicate challans in stationary traffic.
+\item A deployable stack (FastAPI, Streamlit, relational evidence store) with a mandatory human-in-the-loop adjudication console and a crowdsourced citizen-reporting channel, designed against the provisions of the Motor Vehicles Act.
+\end{itemize}
+
+The remainder of the paper is organised as follows. Section~II reviews related work. Section~III describes the system architecture, and Section~IV formalises the violation rules. Section~V reports experimental results, Section~VI covers deployment, Section~VII discusses the ethical and legal framework, and Section~VIII concludes.
+
+%% ---------------------------------------------------------------------
+\section{Related Work}
+
+\subsection{Real-Time Single-Stage Detectors}
+The YOLO family~\cite{redmon2016yolo} reformulated detection as dense single-pass regression, and successive generations have refined the backbone, neck, and label assignment~\cite{wang2023yolov7,jocher2023yolov8,jocher2024yolo11}. A persistent bottleneck is non-maximum suppression (NMS). NMS is a sequential, data-dependent post-processing step whose cost grows with the number of candidate boxes, which is exactly the regime of dense urban scenes. YOLOv10~\cite{wang2024yolov10} introduced consistent dual assignments: a one-to-many head supplies rich supervision during training, and a one-to-one head produces NMS-free predictions at inference. YOLO26~\cite{ultralytics2025yolo26} adopts this end-to-end design for edge targets. It removes the Distribution Focal Loss (DFL) regression head to simplify export, and it adds a progressive loss-balancing scheme (ProgLoss) and small-target-aware label assignment (STAL), both of which suit distant plates and helmets.
+
+\subsection{Helmet and Rider Violation Detection}
+Early helmet-detection pipelines combined background subtraction, motorcycle classification, and hand-crafted head-region descriptors~\cite{dahiya2016}. Deep-learning approaches have since become dominant. Siebert and Lin~\cite{siebert2020} trained a detector that jointly encodes rider position and helmet status, and Track~5 of the 2023 AI City Challenge~\cite{naphade2023aicity} established a public benchmark for per-rider helmet violations, on which genetic-algorithm-tuned YOLOv5 ensembles performed strongly~\cite{soltanikazemi2023}. Work from Indian institutions has addressed unconstrained roads directly. Goyal \emph{et al.}~\cite{goyal2022} detect, track, and count helmet and triple-riding violations by associating riders with motorcycles, and Rawat \emph{et al.}'s DashCop~\cite{rawat2025dashcop} generates two-wheeler e-tickets from dashcam video using a segmentation-and-cross-association pipeline. Our work extends this line to four-wheeler and kinematic violations and adds an identity-aware suppression and adjudication layer that these systems do not address.
+
+\subsection{Trajectory Analysis and Tracking}
+Tracking-by-detection is the standard paradigm for traffic analytics~\cite{buch2011review}. SORT~\cite{bewley2016sort} pairs a Kalman motion model with Hungarian assignment, and DeepSORT~\cite{wojke2017deepsort} adds appearance embeddings. ByteTrack~\cite{zhang2022bytetrack} recovers occluded objects by also associating low-confidence detections, which is valuable when riders and vehicles partially occlude one another. Wrong-way detection has traditionally relied on hand-set angular thresholds against a lane direction. Recurrent models such as LSTMs~\cite{hochreiter1997lstm} and their bidirectional form~\cite{graves2005bilstm}, augmented with attention~\cite{bahdanau2015attention}, can instead learn discriminative motion patterns from noisy track sequences.
+
+\subsection{Automatic Licence Plate Recognition}
+Classical ALPR pipelines chain plate localisation, character segmentation, and recognition~\cite{du2013alpr}. Laroca \emph{et al.}~\cite{laroca2018} showed that YOLO-based detection with layout-aware post-processing achieves robust real-time recognition, and Silva and Jung~\cite{silva2018} addressed oblique plates through warped-plate rectification. Indian plates add further variability, including state codes, the Bharat (BH) series, and non-standard fonts. Syntax-aware normalisation therefore matters as much as raw OCR accuracy.
+
+%% ---------------------------------------------------------------------
+\section{Proposed System Architecture}
+
+\subsection{End-to-End Pipeline}
+Fig.~\ref{fig:arch} summarises the architecture. Video arrives from fixed CCTV cameras (RTSP) or from uploaded files, and still images arrive through the citizen portal. Each frame passes through the YOLO26 detector, which emits vehicle, rider, helmet-state, multi-rider, and plate detections in a single forward pass. ByteTrack then assigns persistent tracklet identifiers. A modular rule engine evaluates each violation module per track, and confirmed events are packaged into evidentiary dossiers queued for officer review.
+
+\begin{figure*}[!t]
+\centering
+\footnotesize
+\begin{verbatim}
+ +--------------+   +------------------+   +-----------------+   +---------------------------------------+
+ | CCTV / RTSP  |-->| Frame Sampler &  |-->| YOLO26n Detector|-->|  ByteTrack MOT (persistent track IDs) |
+ | Video Upload |   | Pre-processing   |   | (NMS-free, 640/ |   |  Kalman predict + 2-stage association |
+ | Citizen Photo|   | (resize, t=f/fps)|   |  832 px)        |   +-------------------+-------------------+
+ +--------------+   +------------------+   +-----------------+                       |
+                                                                                     v
+ +-----------------------------------------------------------------------------------------------------+
+ |                               MODULAR RULE ENGINE  (per track, per frame)                           |
+ |  [Triple Riding]   [Helmet]        [Seatbelt]        [Wrong-Way]           [Plate ROI + EasyOCR]    |
+ |  class + centroid  head-region     windshield ROI    Bi-LSTM + attention   aspect check + Indian    |
+ |  containment >0.6  classification  strap texture     / orientation consens. syntax normalisation    |
+ +---------------------------------------------+-------------------------------------------------------+
+                                               v
+ +----------------------------------+   +----------------------------+   +-------------------------------+
+ | Temporal Confirmation            |-->| Evidentiary Dossier        |-->| Officer Adjudication Console  |
+ | N-of-M voting + cooldown timer   |   | snapshot, clip, OCR audit, |   | approve / reject / amend      |
+ | t_now - t_last(ID) > tau         |   | demerit points, face blur  |   | -> e-Challan (Parivahan API)  |
+ +----------------------------------+   +----------------------------+   +-------------------------------+
+\end{verbatim}
+\caption{End-to-end architecture of the proposed multi-violation enforcement system.}
+\label{fig:arch}
+\end{figure*}
+
+\subsection{YOLO26n Detector versus YOLOv8n}
+The detector is based on Ultralytics YOLO26-Nano~\cite{ultralytics2025yolo26}. Its backbone and neck use C3k2 residual blocks, a cross-stage partial design with two parallel $3{\times}3$ bottlenecks per stage, which preserves gradient flow at a low parameter cost. The detection head uses dual label assignment. During training, a one-to-many branch receives top-$k$ positive assignments for dense supervision, and a one-to-one branch is trained with a consistent matching metric. At inference, only the one-to-one branch is executed, and it emits at most one prediction per object. NMS is therefore removed from the critical path.
+
+Our compiled model contains 260 layers, 2{,}585{,}750 parameters (2.58\,M), and requires 5.9\,GFLOPs at 640\,px. The YOLOv8n baseline~\cite{jocher2023yolov8} contains 225 layers, 3.16\,M parameters, and 8.9\,GFLOPs. YOLO26n therefore uses 18.4\% fewer parameters and 33.7\% fewer FLOPs. Removing NMS is especially beneficial on CPU-class edge devices, where NMS executes as serial host code and its latency varies with scene density, which makes timing budgets unpredictable precisely in congested scenes.
+
+\subsection{Dual-Resolution Training}
+Small-object recall degrades rapidly with distance. A licence plate 25\,m from a gantry camera may occupy fewer than $40{\times}12$ pixels at 640\,px input. We therefore train two complementary models:
+\begin{itemize}
+\item \textbf{High-resolution model (832\,px)}, fine-tuned on 4{,}016 images emphasising distant licence plates and helmet states. Inference cost scales approximately with $(832/640)^2 \approx 1.69$, giving 9.8\,GFLOPs.
+\item \textbf{Standard model (640\,px)}, trained on 6{,}057 images for triple riding and mobile-phone use, where the targets (whole motorcycles, upper bodies) are large.
+\end{itemize}
+The detector wrapper reads the training resolution stored in each checkpoint and routes inference at the matching input size.
+
+\subsection{Violation Modules}
+
+\textit{1) Dual-Mode Triple Riding:} The direct mode uses the learned \texttt{MORE\_THAN\_TWO\_PERSONS} class, which encodes the motorcycle--rider ensemble as a single object. The geometric mode associates every detected person with a tracked motorcycle through box containment (Section~IV-A) and counts the associated riders. The two modes fail in complementary ways. The direct class is robust to occlusion but can miss unusual seating configurations, whereas geometric counting handles those configurations but under-counts hidden pillions. A logical OR of the two, followed by temporal confirmation, raises recall without a proportional loss in precision.
+
+\textit{2) Rider Helmet Verification:} Helmet compliance is evaluated in two stages. Motorcycles are localised and tracked first, and head-region detections (\texttt{WITH\_HELMET}/\texttt{WITHOUT\_HELMET}) are then associated with the rider seated on that motorcycle. Cooldown state is keyed by \emph{(motorcycle ID, seat role)}, so a non-compliant pillion and a compliant driver on the same vehicle are adjudicated separately.
+
+\textit{3) Four-Wheeler Seatbelt Verification:} For cars, a windshield region of interest is cropped from the upper 60\% of the tracked vehicle box. Within it, the occupant torso region is analysed for the diagonal shoulder-to-hip strap signature using oriented-gradient energy in the expected strap direction. Because windshield glare and reflections produce transient false positives, seatbelt decisions require multi-frame agreement and use a longer cooldown (15\,s).
+
+\textit{4) Kinematic Wrong-Way Driving:} For video, normalised ByteTrack trajectories are classified by a Bi-LSTM with temporal attention (Section~IV-B). For single citizen photographs, which carry no motion information, an orientation-consensus analyser estimates each vehicle's heading from visual cues. These cues include the visibility of front-facing versus rear-facing features and box aspect ratios. The analyser flags vehicles whose heading deviates from the dominant traffic vector by at least $120^{\circ}$.
+
+\textit{5) Licence Plate Localisation and OCR:} The \texttt{NUMBER\_PLATE} detection is cropped, contrast-normalised, and passed to EasyOCR~\cite{easyocr}. Candidate strings are filtered by plate aspect ratio and then normalised against the registration formats of the Central Motor Vehicles Rules: the standard state series (e.g., \texttt{KA01AB1234}) and the BH series (e.g., \texttt{22BH1234AA}). Position-aware confusion correction (O$\leftrightarrow$0, I$\leftrightarrow$1, S$\leftrightarrow$5, B$\leftrightarrow$8, Z$\leftrightarrow$2) resolves systematic OCR substitutions, so a letter is enforced in state-code positions and a digit in serial positions.
+
+%% ---------------------------------------------------------------------
+\section{Mathematical Formulation of Violation Rules}
+
+\subsection{Rider-to-Motorcycle Association}
+Let $B_p$ be a person box and $B_v$ a motorcycle box. Standard intersection-over-union is
+\begin{equation}
+\mathrm{IoU}(B_p, B_v) = \frac{|B_p \cap B_v|}{|B_p \cup B_v|}.
+\end{equation}
+IoU is a poor association metric here, because a rider's box extends well above the motorcycle and produces low IoU even for true associations. We therefore use the asymmetric containment ratio
+\begin{equation}
+C(B_p, B_v) = \frac{|B_p \cap B_v|}{|B_p|},
+\end{equation}
+which measures the fraction of the person box overlapping the vehicle. Person $p$ is associated with motorcycle $v^{*}$ when
+\begin{equation}
+v^{*} = \arg\max_{v} C(B_p, B_v), \qquad C(B_p, B_{v^{*}}) > \gamma, \quad \gamma = 0.60,
+\end{equation}
+and when the person centroid $(c^p_x, c^p_y)$ lies within the horizontal extent of $B_{v^{*}}$. The rider count is $N_v = \sum_p \mathbb{1}[v^{*}(p)=v]$. A triple-riding candidate is raised when
+\begin{equation}
+\mathcal{T}_v = \mathbb{1}\!\left[\,\exists\, d:\, \mathrm{cls}(d)=\textsc{MTTP} \wedge \mathrm{IoU}(B_d,B_v)>\gamma\,\right] \vee \mathbb{1}[N_v \geq 3].
+\end{equation}
+
+\subsection{Trajectory Kinematics and Bi-LSTM Classifier}
+For track $i$ with centroid $(x_t, y_t)$ at frame $t$, the displacement over a lag $k$ is
+\begin{equation}
+\vec{v}_t = (x_t - x_{t-k},\; y_t - y_{t-k}), \qquad \theta_t = \operatorname{atan2}(\Delta y, \Delta x).
+\end{equation}
+Each timestep is encoded as $\mathbf{z}_t = [\tilde{x}_t, \tilde{y}_t, \Delta x_t, \Delta y_t, \sin\theta_t, \cos\theta_t]$, with positions normalised by the frame dimensions. The angle is encoded by its sine and cosine to avoid the $\pm\pi$ discontinuity. A sequence $\mathbf{Z} = (\mathbf{z}_1,\dots,\mathbf{z}_T)$ is processed by forward and backward LSTMs~\cite{hochreiter1997lstm,graves2005bilstm}:
+\begin{equation}
+\overrightarrow{h}_t = \mathrm{LSTM}_f(\mathbf{z}_t, \overrightarrow{h}_{t-1}), \quad
+\overleftarrow{h}_t = \mathrm{LSTM}_b(\mathbf{z}_t, \overleftarrow{h}_{t+1}),
+\end{equation}
+\begin{equation}
+h_t = [\overrightarrow{h}_t \,\|\, \overleftarrow{h}_t].
+\end{equation}
+Additive temporal attention~\cite{bahdanau2015attention} weights the timesteps:
+\begin{equation}
+e_t = \mathbf{w}^{\top}\tanh(\mathbf{W}_a h_t + \mathbf{b}_a), \qquad
+\alpha_t = \frac{\exp(e_t)}{\sum_{i=1}^{T}\exp(e_i)},
+\end{equation}
+\begin{equation}
+\mathbf{c} = \sum_{t=1}^{T}\alpha_t h_t, \qquad
+\hat{y} = \sigma(\mathbf{w}_o^{\top}\mathbf{c} + b_o).
+\end{equation}
+Attention lets the model concentrate on the segment in which a vehicle actually moves against the flow, discounting stationary frames and tracker jitter.
+
+For single images, let $\theta_i$ be the estimated heading of vehicle $i$. The dominant flow direction is the circular mean
+\begin{equation}
+\bar{\theta} = \operatorname{atan2}\Big(\textstyle\sum_i \sin\theta_i,\; \sum_i \cos\theta_i\Big),
+\end{equation}
+and vehicle $i$ is flagged when the wrapped deviation satisfies $|\,\mathrm{wrap}(\theta_i - \bar{\theta})\,| \geq \delta_{\theta}$ with $\delta_{\theta} = 120^{\circ}$.
+
+\subsection{Temporal Confirmation and Anti-Spam Condition}
+Video time is derived from the frame index rather than the wall clock, $t_{\mathrm{current}} = \text{frame\_idx}/\text{fps}$, so that suppression behaves identically under real-time streaming, accelerated offline processing, and dropped frames. Let $s_t^{(i)} \in \{0,1\}$ be the per-frame violation evidence for track $i$. A violation is \emph{confirmed} when at least $N$ of the last $M$ observations are positive:
+\begin{equation}
+\sum_{j=t-M+1}^{t} s_j^{(i)} \geq N, \qquad (N, M) = (6, 10),
+\end{equation}
+and it is \emph{emitted} only if the identity is outside its cooldown window:
+\begin{equation}
+t_{\mathrm{current}} - t_{\mathrm{last\_violation}}(ID) > \tau_{\mathrm{cooldown}}.
+\end{equation}
+We use $\tau_{\mathrm{cooldown}} = 10$\,s by default, 12\,s for signal jumps, and 15\,s for seatbelt and mobile-phone violations, where reflection-induced flicker is more common. Algorithm~\ref{alg:pipeline} summarises the per-frame logic.
+
+\begin{algorithm}[!t]
+\caption{Identity-Aware Multi-Violation Enforcement}
+\label{alg:pipeline}
+\begin{algorithmic}[1]
+\Require Frame stream $\{I_f\}$, fps, rule set $\mathcal{R}$, $(N,M)$, $\tau$
+\State $H[\cdot] \gets$ empty deques of length $M$; $L[\cdot] \gets -\infty$
+\For{each frame $I_f$}
+  \State $t \gets f / \text{fps}$
+  \State $\mathcal{D} \gets \textsc{YOLO26}(I_f)$ \Comment{NMS-free}
+  \State $\mathcal{K} \gets \textsc{ByteTrack}(\mathcal{D})$
+  \For{each track $k \in \mathcal{K}$ and rule $r \in \mathcal{R}$}
+    \State $key \gets (r, k.id, k.\text{seat\_role})$
+    \State $H[key].\textsc{push}(r.\textsc{evaluate}(k, \mathcal{D}, I_f))$
+    \If{$\sum H[key] \geq N$ \textbf{and} $t - L[key] > \tau_r$}
+      \State $plate \gets \textsc{NormalizeOCR}(\textsc{EasyOCR}(k.\text{plate\_roi}))$
+      \State $\textsc{CreateDossier}(I_f, k, r, plate, t)$
+      \State $L[key] \gets t$; \ $H[key].\textsc{clear}()$
+    \EndIf
+  \EndFor
+\EndFor
+\end{algorithmic}
+\end{algorithm}
+
+%% ---------------------------------------------------------------------
+\section{Experimental Setup and Results Analysis}
+
+\subsection{Training Environment}
+All models were trained on Google Colab using an NVIDIA Tesla T4 GPU (16\,GB). Training ran for 30--80 epochs depending on dataset size, using the AdamW optimiser~\cite{loshchilov2019adamw} with a cosine learning-rate schedule~\cite{loshchilov2017sgdr}, COCO-pretrained initialisation~\cite{lin2014coco}, and standard Ultralytics augmentation (mosaic, HSV jitter, horizontal flip, scale). Mosaic was disabled in the final epochs to stabilise box regression. Latency was measured at batch size~1 on the T4 GPU and on the Colab host CPU, averaged over repeated runs after warm-up.
+
+\subsection{Detector Efficiency and Accuracy}
+Table~\ref{tab:bench} compares the architectures. At an identical 640\,px input, YOLO26n reduces CPU latency from 22.8 to 16.4\,ms (28.1\%) and GPU latency from 5.2 to 3.8\,ms (26.9\%), while improving mAP$_{50}$ by 1.3 points. The detector alone therefore sustains approximately 61\,FPS on CPU and 263\,FPS on the T4, leaving ample headroom for tracking, OCR, and rule evaluation within a real-time budget. The 832\,px variant raises mAP$_{50}$ to 94.8\%. Its GPU latency (4.6\,ms) remains below that of YOLOv8n at 640\,px, so higher resolution with YOLO26 is cheaper on GPU than the legacy model at standard resolution.
+
+\begin{table}[!t]
+\centering
+\caption{Detector Benchmark on Tesla T4 (Batch Size 1)}
+\label{tab:bench}
+\setlength{\tabcolsep}{3pt}
+\begin{tabular}{@{}lcccccc@{}}
+\toprule
+\textbf{Model} & \textbf{Input} & \textbf{Params} & \textbf{GFLOPs} & \textbf{CPU} & \textbf{GPU} & \textbf{mAP$_{50}$} \\
+ & (px) & (M) & & (ms) & (ms) & (\%) \\
+\midrule
+YOLOv8n (Baseline) & 640 & 3.16 & 8.9 & 22.8 & 5.2 & 90.9 \\
+YOLO26n (Proposed) & 640 & 2.58 & 5.9 & 16.4 & 3.8 & 92.2 \\
+YOLO26n v2 (High-Res) & 832 & 2.58 & 9.8 & 24.1 & 4.6 & \textbf{94.8} \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+\subsection{Class-Wise Performance}
+Table~\ref{tab:class} reports per-class results. The F1 column is derived as $F_1 = 2PR/(P+R)$.
+
+\begin{table}[!t]
+\centering
+\caption{Class-Wise Detection and Classification Performance}
+\label{tab:class}
+\setlength{\tabcolsep}{4pt}
+\begin{tabular}{@{}lcccc@{}}
+\toprule
+\textbf{Class} & \textbf{P (\%)} & \textbf{R (\%)} & \textbf{F1} & \textbf{mAP$_{50}$ (\%)} \\
+\midrule
+\texttt{MORE\_THAN\_TWO\_PERSONS} & 85.6 & 86.4 & 0.860 & 92.3 \\
+\texttt{WITH\_HELMET}             & 84.0 & 75.7 & 0.796 & 83.5 \\
+\texttt{WITHOUT\_HELMET}          & 64.9 & 55.7 & 0.600 & 61.8 \\
+\texttt{NUMBER\_PLATE}            & 88.2 & 89.1 & 0.887 & 94.1 \\
+\midrule
+\texttt{WRONG\_WAY\_LSTM}$^{\dagger}$ & 100.0 & 100.0 & 1.000 & -- \\
+\bottomrule
+\multicolumn{5}{@{}l@{}}{\footnotesize $^{\dagger}$Sequence classifier; validation accuracy 100\%.}
+\end{tabular}
+\end{table}
+
+\textit{Triple riding and plates.} Both classes exceed 92\% mAP$_{50}$ with balanced precision and recall, so a single confidence threshold yields a well-behaved operating point. The number-plate class reaches the highest F1 (0.887), which supports reliable downstream OCR.
+
+\textit{Helmet asymmetry.} The \texttt{WITHOUT\_HELMET} class is the weakest (mAP$_{50}$ 61.8\%, recall 55.7\%). We attribute this to three factors: (i) class imbalance, because compliant riders dominate the training data; (ii) visual ambiguity between bare heads, caps, scarves, and dark half-face helmets at low resolution; and (iii) occlusion of pillion heads. The precision--recall characteristics favour the system design over raw detector output. Low recall means some violations are missed, which is an acceptable failure mode for enforcement. Moderate precision is further compensated by $N$-of-$M$ voting, which requires sustained evidence across frames, and by mandatory officer review, so a single-frame false positive cannot become a penalty.
+
+\textit{Wrong-way classifier.} The Bi-LSTM attains perfect validation accuracy and F1. We interpret this result cautiously. Trajectory-level wrong-way classification in a fixed camera geometry is a comparatively separable problem once the dominant flow is learned, and the validation set was drawn from the same camera views as the training data. Cross-camera and cross-site evaluation is needed before claiming generalisation (Section~VIII).
+
+\subsection{Latency Breakdown and Edge Implications}
+The detector accounts for the dominant, fixed share of per-frame cost. ByteTrack association is lightweight (Kalman prediction and Hungarian matching over tens of tracks), and rule evaluation is arithmetic on box geometry. OCR, the most expensive downstream step, runs only on confirmed violations, not on every frame, so its cost is amortised across events rather than frames. Because the YOLO26 head is NMS-free, detector latency is independent of scene density. For edge provisioning, this guarantee matters more than the mean-latency reduction alone, because NMS cost peaks during congestion, which is exactly when violations are most frequent.
+
+%% ---------------------------------------------------------------------
+\section{Implementation, Deployment, and Adjudication}
+
+\subsection{Backend and Dashboard}
+The inference pipeline is exposed through an asynchronous FastAPI backend. Video ingestion, detection, and dossier generation run as background tasks so that request handlers never block on GPU work. Uploaded filenames are sanitised against path traversal before storage. A Streamlit officer dashboard provides live camera monitoring, camera calibration (stop-line and permitted-direction configuration), a review queue, and analytics.
+
+\subsection{Data Model}
+The evidence store uses SQLite for single-node edge deployments and PostgreSQL for city-scale aggregation, accessed through a common ORM. The core entities are \emph{Camera} (location, orientation, permitted flow vector), \emph{Violation} (type, track ID, timestamp, confidence, normalised plate, MV Act section, demerit points, status), \emph{Evidence} (annotated snapshot, video clip, plate crop, raw versus normalised OCR audit), \emph{Review} (officer ID, decision, remarks, timestamp), and \emph{CitizenReport}. Each status transition is appended to an audit log, which preserves an evidentiary chain of custody.
+
+\subsection{Human-in-the-Loop Adjudication}
+No penalty is issued automatically. Each confirmed event produces a dossier containing the annotated frame, a short clip around the event, the plate crop with both raw and normalised OCR strings, the rule-engine explanation (e.g., ``rider linked to motorcycle \#17 by bounding-box containment'' or ``angular deviation $164^{\circ}$, threshold $\geq 120^{\circ}$''), and the applicable penalty provision. An officer approves, rejects, or amends the plate reading. Only approved dossiers are forwarded to the e-challan integration interface, which is designed to target the national Parivahan ecosystem. Rejections are logged and can be fed back as hard negatives for retraining.
+
+\subsection{Citizen Reporting Portal}
+Citizens may upload photographs of violations. The portal runs the same detector, applies the orientation-consensus analyser for wrong-way claims, and automatically classifies every violation present in the image, so that a single photograph can yield helmet, triple-riding, and plate findings together. Citizen submissions enter the same adjudication queue, flagged by source, and are held to the same evidentiary standard as camera-generated events.
+
+%% ---------------------------------------------------------------------
+\section{Ethical, Privacy, and Legal Framework}
+
+\subsection{Statutory Basis}
+Electronic enforcement in India is enabled by Section~136A of the Motor Vehicles Act, introduced by the 2019 amendment~\cite{mvact2019}, and by Rule~167A of the Central Motor Vehicles Rules. The modules map onto specific penalty provisions: Section~194D (riding without protective headgear), Section~194C (violation of safety measures for motorcycle drivers and pillion riders, which covers triple riding), Section~194B (failure to wear a safety belt), and Section~184 (driving dangerously, which covers wrong-way driving, signal jumping, and handheld-device use). Each dossier records the section invoked, so the officer reviews a specific legal claim rather than a generic alert.
+
+\subsection{Data Minimisation and Privacy}
+Consistent with the Digital Personal Data Protection Act, 2023~\cite{dpdp2023}, the system adopts the following measures:
+(i) faces of bystanders and non-violating occupants are blurred in stored evidence;
+(ii) plate strings and imagery are retained only for confirmed violation events, while tracks of compliant vehicles are discarded when they leave the scene;
+(iii) raw video beyond the evidentiary clip is not persisted; and
+(iv) dashboard access is role-based and audit-logged.
+
+\subsection{Accountability and Fairness}
+Mandatory officer sign-off ensures that a human authority bears responsibility for every penalty, and the rule-engine explanation supports contestability, because a recipient can see why the event was flagged. The low recall of the \texttt{WITHOUT\_HELMET} class is a fairness concern as well as an accuracy one. If performance varies with helmet style, clothing, or illumination, enforcement intensity may vary across groups. Disaggregated error auditing is therefore part of our evaluation roadmap.
+
+%% ---------------------------------------------------------------------
+\section{Conclusion and Future Work}
+
+This paper presented an edge-deployable, multi-violation traffic enforcement system tailored to heterogeneous Indian urban traffic. An NMS-free YOLO26-Nano detector reduces computation by 33.7\% relative to YOLOv8n while improving mAP$_{50}$ to 92.2\%, rising to 94.8\% at 832\,px. Dual-mode triple-riding detection, seat-role-aware helmet verification, windshield-ROI seatbelt analysis, Bi-LSTM trajectory classification, and syntax-normalised plate recognition operate within one tracked pipeline. Identity-aware $N$-of-$M$ voting and video-time cooldowns remove the duplicate-challan problem in stationary traffic, and mandatory human adjudication preserves accountability.
+
+Future work will address the following directions:
+(i) improving \texttt{WITHOUT\_HELMET} recall through class-balanced sampling, head-crop super-resolution, and targeted data collection under low light;
+(ii) cross-camera and cross-site validation of the wrong-way Bi-LSTM;
+(iii) quantitative benchmarking of the seatbelt and mobile-phone modules on annotated Bengaluru footage;
+(iv) multi-camera 3D homography for metric speed estimation, mapping image trajectories to road-plane coordinates through calibrated ground-plane transforms; and
+(v) INT8 quantisation and TensorRT deployment on embedded edge devices for field pilots with traffic authorities.
+
+\section*{Acknowledgment}
+The authors thank the Department of Computer Science \& Engineering, Alliance School of Advanced Computing, Alliance University, for computational and academic support.
+
+%% ---------------------------------------------------------------------
+\begin{thebibliography}{99}
+
+\bibitem{morth2022}
+Ministry of Road Transport and Highways, ``Road accidents in India 2022,'' Transport Research Wing, Government of India, New Delhi, 2023.
+
+\bibitem{btp2025}
+Bengaluru Traffic Police, ``Traffic violation enforcement statistics, January--April 2025,'' Bengaluru, India, 2025.
+
+\bibitem{varma2019idd}
+G. Varma, A. Subramanian, A. Namboodiri, M. Chandraker, and C. V. Jawahar, ``IDD: A dataset for exploring problems of autonomous navigation in unconstrained environments,'' in \emph{Proc. IEEE Winter Conf. Appl. Comput. Vis. (WACV)}, 2019, pp. 1743--1751.
+
+\bibitem{dahiya2016}
+K. Dahiya, D. Singh, and C. K. Mohan, ``Automatic detection of bike-riders without helmet using surveillance videos in real-time,'' in \emph{Proc. Int. Joint Conf. Neural Netw. (IJCNN)}, 2016, pp. 3046--3051.
+
+\bibitem{siebert2020}
+F. W. Siebert and H. Lin, ``Detecting motorcycle helmet use with deep learning,'' \emph{Accident Anal. Prev.}, vol. 134, Art. no. 105319, 2020.
+
+\bibitem{soltanikazemi2023}
+E. Soltanikazemi, A. Dhakal, B. K. Hatuwal, I. E. Toubal, A. Aboah, and K. Palaniappan, ``Real-time helmet violation detection in AI City Challenge 2023 with genetic algorithm-enhanced YOLOv5,'' in \emph{Proc. IEEE Appl. Imagery Pattern Recognit. Workshop (AIPR)}, 2023.
+
+\bibitem{redmon2016yolo}
+J. Redmon, S. Divvala, R. Girshick, and A. Farhadi, ``You only look once: Unified, real-time object detection,'' in \emph{Proc. IEEE/CVF Conf. Comput. Vis. Pattern Recognit. (CVPR)}, 2016, pp. 779--788.
+
+\bibitem{wang2023yolov7}
+C.-Y. Wang, A. Bochkovskiy, and H.-Y. M. Liao, ``YOLOv7: Trainable bag-of-freebies sets new state-of-the-art for real-time object detectors,'' in \emph{Proc. IEEE/CVF Conf. Comput. Vis. Pattern Recognit. (CVPR)}, 2023, pp. 7464--7475.
+
+\bibitem{jocher2023yolov8}
+G. Jocher, A. Chaurasia, and J. Qiu, ``Ultralytics YOLOv8,'' 2023. [Online]. Available: https://github.com/ultralytics/ultralytics
+
+\bibitem{jocher2024yolo11}
+G. Jocher and J. Qiu, ``Ultralytics YOLO11,'' 2024. [Online]. Available: https://github.com/ultralytics/ultralytics
+
+\bibitem{wang2024yolov10}
+A. Wang, H. Chen, L. Liu, K. Chen, Z. Lin, J. Han, and G. Ding, ``YOLOv10: Real-time end-to-end object detection,'' in \emph{Adv. Neural Inf. Process. Syst. (NeurIPS)}, 2024.
+
+\bibitem{ultralytics2025yolo26}
+Ultralytics, ``Ultralytics YOLO26 documentation,'' 2025. [Online]. Available: https://docs.ultralytics.com/models/yolo26/
+
+\bibitem{naphade2023aicity}
+M. Naphade \emph{et al.}, ``The 7th AI City Challenge,'' in \emph{Proc. IEEE/CVF Conf. Comput. Vis. Pattern Recognit. Workshops (CVPRW)}, 2023.
+
+\bibitem{goyal2022}
+A. Goyal, D. Agarwal, A. Subramanian, C. V. Jawahar, R. K. Sarvadevabhatla, and R. Saluja, ``Detecting, tracking and counting motorcycle rider traffic violations on unconstrained roads,'' in \emph{Proc. IEEE/CVF Conf. Comput. Vis. Pattern Recognit. Workshops (CVPRW)}, 2022.
+
+\bibitem{rawat2025dashcop}
+D. Rawat, K. Gupta, A. Basu Roy, and R. K. Sarvadevabhatla, ``DashCop: Automated e-ticket generation for two-wheeler traffic violations using dashcam videos,'' in \emph{Proc. IEEE/CVF Winter Conf. Appl. Comput. Vis. (WACV)}, 2025.
+
+\bibitem{buch2011review}
+N. Buch, S. A. Velastin, and J. Orwell, ``A review of computer vision techniques for the analysis of urban traffic,'' \emph{IEEE Trans. Intell. Transp. Syst.}, vol. 12, no. 3, pp. 920--939, Sep. 2011.
+
+\bibitem{bewley2016sort}
+A. Bewley, Z. Ge, L. Ott, F. Ramos, and B. Upcroft, ``Simple online and realtime tracking,'' in \emph{Proc. IEEE Int. Conf. Image Process. (ICIP)}, 2016, pp. 3464--3468.
+
+\bibitem{wojke2017deepsort}
+N. Wojke, A. Bewley, and D. Paulus, ``Simple online and realtime tracking with a deep association metric,'' in \emph{Proc. IEEE Int. Conf. Image Process. (ICIP)}, 2017, pp. 3645--3649.
+
+\bibitem{zhang2022bytetrack}
+Y. Zhang, P. Sun, Y. Jiang, D. Yu, F. Weng, Z. Yuan, P. Luo, W. Liu, and X. Wang, ``ByteTrack: Multi-object tracking by associating every detection box,'' in \emph{Proc. Eur. Conf. Comput. Vis. (ECCV)}, 2022, pp. 1--21.
+
+\bibitem{hochreiter1997lstm}
+S. Hochreiter and J. Schmidhuber, ``Long short-term memory,'' \emph{Neural Comput.}, vol. 9, no. 8, pp. 1735--1780, 1997.
+
+\bibitem{graves2005bilstm}
+A. Graves and J. Schmidhuber, ``Framewise phoneme classification with bidirectional LSTM and other neural network architectures,'' \emph{Neural Netw.}, vol. 18, no. 5--6, pp. 602--610, 2005.
+
+\bibitem{bahdanau2015attention}
+D. Bahdanau, K. Cho, and Y. Bengio, ``Neural machine translation by jointly learning to align and translate,'' in \emph{Proc. Int. Conf. Learn. Represent. (ICLR)}, 2015.
+
+\bibitem{du2013alpr}
+S. Du, M. Ibrahim, M. Shehata, and W. Badawy, ``Automatic license plate recognition (ALPR): A state-of-the-art review,'' \emph{IEEE Trans. Circuits Syst. Video Technol.}, vol. 23, no. 2, pp. 311--325, Feb. 2013.
+
+\bibitem{laroca2018}
+R. Laroca, E. Severo, L. A. Zanlorensi, L. S. Oliveira, G. R. Gon\c{c}alves, W. R. Schwartz, and D. Menotti, ``A robust real-time automatic license plate recognition based on the YOLO detector,'' in \emph{Proc. Int. Joint Conf. Neural Netw. (IJCNN)}, 2018.
+
+\bibitem{silva2018}
+S. M. Silva and C. R. Jung, ``License plate detection and recognition in unconstrained scenarios,'' in \emph{Proc. Eur. Conf. Comput. Vis. (ECCV)}, 2018, pp. 580--596.
+
+\bibitem{easyocr}
+JaidedAI, ``EasyOCR: Ready-to-use OCR with 80+ supported languages,'' 2020. [Online]. Available: https://github.com/JaidedAI/EasyOCR
+
+\bibitem{loshchilov2019adamw}
+I. Loshchilov and F. Hutter, ``Decoupled weight decay regularization,'' in \emph{Proc. Int. Conf. Learn. Represent. (ICLR)}, 2019.
+
+\bibitem{loshchilov2017sgdr}
+I. Loshchilov and F. Hutter, ``SGDR: Stochastic gradient descent with warm restarts,'' in \emph{Proc. Int. Conf. Learn. Represent. (ICLR)}, 2017.
+
+\bibitem{lin2014coco}
+T.-Y. Lin \emph{et al.}, ``Microsoft COCO: Common objects in context,'' in \emph{Proc. Eur. Conf. Comput. Vis. (ECCV)}, 2014, pp. 740--755.
+
+\bibitem{mvact2019}
+Government of India, ``The Motor Vehicles (Amendment) Act, 2019,'' Act No. 32 of 2019, \emph{Gazette of India}, Aug. 2019.
+
+\bibitem{dpdp2023}
+Government of India, ``The Digital Personal Data Protection Act, 2023,'' Act No. 22 of 2023, \emph{Gazette of India}, Aug. 2023.
+
+\end{thebibliography}
+
+\end{document}
