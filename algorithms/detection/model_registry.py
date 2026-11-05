@@ -96,7 +96,7 @@ def short(key_or_path: str) -> str:
     if "wrong_way_yolo" in k:
         return "YOLO (Wrong Way)"
     if "wrong_way" in k:
-        return "Bi-LSTM (Wrong Way)"
+        return "YOLOv8n wrong-side (Roboflow val)"
     return MODELS[k]["short"] if k in MODELS else Path(str(key_or_path)).stem
 
 

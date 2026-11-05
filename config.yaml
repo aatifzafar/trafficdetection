@@ -10,6 +10,7 @@ detection:
   model_custom: "models/traffic_custom.pt"
   model_triple: "models/triple_riding_best.pt"  # team's triple-riding model (only its triple/phone classes are used)
   model_seatbelt: "models/seatbelt_best.pt"
+  model_wrong_way: "models/wrong_way_yolo.pt"  # team's wrong-side model (YOLOv8n, Roboflow data) - used on citizen photos
   model_helmet: "models/helmet_model.pt"
   model_plate: "models/plate_model.pt"
   confidence: 0.35

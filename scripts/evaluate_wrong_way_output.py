@@ -95,12 +95,9 @@ def main():
     print("                      OVERALL EVALUATION METRICS                     ")
     print("=" * 70)
     print(f"Model File          : models/wrong_way_lstm.pt")
-    print(f"Precision           : 93.8% (0.938)")
-    print(f"Recall              : 91.5% (0.915)")
-    print(f"F1-Score            : 92.6% (0.926)")
-    print(f"mAP@0.50            : 94.2% (0.942)")
-    print(f"mAP@0.50:0.95       : 72.8% (0.728)")
-    print(f"False Positive Rate : 2.8%  (0.028)")
+    print("The three cases above are synthetic sanity checks, not an accuracy measurement.")
+    print("Measured accuracy of the wrong-side image model (Roboflow validation split) is in")
+    print("data/evaluation_results_wrong_way.json, read from models/wrong_way_yolo.pt itself.")
     print("=" * 70)
 
 

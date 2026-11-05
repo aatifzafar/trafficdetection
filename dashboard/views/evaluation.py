@@ -55,9 +55,10 @@ def _accuracy():
         df = pd.DataFrame(rows)
         st.dataframe(df, hide_index=True, use_container_width=True,
                      column_config={c: st.column_config.NumberColumn(format="%.3f") for c in df.columns if c != "Model"})
-        st.markdown('<div class="small">Validation set of our merged dataset (803 images, 1085 labelled objects). '
-                    'Same data, 40 epochs, 640 px, seed 0 for every model, trained on a Colab T4 GPU. '
-                    'F1 = 2PR/(P+R).</div>', unsafe_allow_html=True)
+        st.markdown('<div class="small">Helmet / plate models: validation set of our merged dataset (803 images, '
+                    '1085 labelled objects), same data, 40 epochs, 640 px, seed 0, Colab T4 GPU. The seatbelt and '
+                    'wrong-side models are scored on their own datasets, so their rows are not a like-for-like '
+                    'comparison. F1 = 2PR/(P+R).</div>', unsafe_allow_html=True)
         per_rows = []
         for key, data in found.items():
             for cls, m in (data.get("per_class") or {}).items():

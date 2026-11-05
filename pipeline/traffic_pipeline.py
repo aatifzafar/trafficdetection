@@ -558,7 +558,6 @@ class TrafficVisionPipeline:
                 tail = (int(bx - ndx * 12), int(by - ndy * 12))
                 cv2.arrowedLine(frame, tail, tip, (0, 255, 0), 2, tipLength=0.45)
                 cv2.putText(frame, "LANE FLOW", (bx - 36, by + 34), cv2.FONT_HERSHEY_SIMPLEX, 0.36, (0, 255, 0), 1)
-
         # Draw no-parking zones
         park_rule = self.rule_engine.rules.get("illegal_parking")
         for zi, z in enumerate(getattr(park_rule, "zones", []) or []):

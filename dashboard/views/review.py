@@ -63,7 +63,7 @@ def _why(viol, meta) -> list:
         lines.append(f"Vehicle Type: {v_type}")
 
         if is_motion_verified:
-            lines.append("✓ Temporal Status: WRONG WAY VERIFIED (Multi-frame kinematic tracking)")
+            lines.append("Temporal Status: WRONG WAY VERIFIED (Multi-frame kinematic tracking)")
             t_id = viol.track_id or extra.get("track_id")
             if t_id:
                 lines.append(f"Vehicle Tracking ID: Track #{t_id}")
@@ -358,8 +358,8 @@ def render():
                         st.image(str(orig_img), caption="Original photograph as uploaded by citizen", use_container_width=True)
 
                 if ev.get("video"):
-                    with st.expander("🎥 Evidence Video Clip (Multi-frame Context)", expanded=False):
-                        st.video(ev["video"], key=f"rev_video_{viol.id}")
+                    with st.expander("Evidence Video Clip (Multi-frame Context)", expanded=False):
+                        st.video(ev["video"])
 
             # Plate Verification & Quick Correction Studio
             with ui.panel():
