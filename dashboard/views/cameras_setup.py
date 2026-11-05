@@ -69,7 +69,12 @@ def _source(cam):
 def _grab_frame(src, nonce: int = 0):
     if _is_placeholder(src):
         return None
-    cap = cv2.VideoCapture(src)
+    if isinstance(src, str) and "://" in src:
+        # network stream (CCTV / phone): give up after 4 s so an unreachable camera never freezes the page
+        cap = cv2.VideoCapture(src, cv2.CAP_FFMPEG, [cv2.CAP_PROP_OPEN_TIMEOUT_MSEC, 4000,
+                                                     cv2.CAP_PROP_READ_TIMEOUT_MSEC, 4000])
+    else:
+        cap = cv2.VideoCapture(src)
     ok, frame = cap.read() if cap.isOpened() else (False, None)
     for _ in range(10):  # skip black first frames of some encoders
         if ok and frame is not None and frame.mean() > 8:

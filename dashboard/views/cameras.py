@@ -9,6 +9,7 @@ Consolidates all camera operations into a single master hub:
 
 import datetime
 import os
+from pathlib import Path
 
 import cv2
 import pandas as pd
@@ -336,54 +337,198 @@ def _render_camera_cards_wall(raw_cams):
                     st.rerun()
 
 
-def _render_add_camera():
-    """Form to register a new camera with verified Bengaluru junction presets."""
-    st.markdown("### Register New CCTV Camera — Bengaluru")
-    st.caption("Select a popular Bengaluru junction preset or enter custom stream parameters.")
+SOURCE_KINDS = {
+    "Mobile phone (IP Webcam app)": "MOBILE",
+    "CCTV / IP camera (RTSP)": "RTSP",
+    "USB or laptop webcam": "WEBCAM",
+    "Recorded video file": "VIDEO_FILE",
+}
+HANDHELD_KINDS = {"MOBILE", "WEBCAM"}
+HANDHELD_RULES = {"helmet": True, "triple_riding": True, "seatbelt": True, "red_light": False, "wrong_way": False,
+                  "illegal_parking": False, "unsafe_movement": False}
+JUNCTIONS = {
+    "Custom location": ("", 12.9716, 77.5946),
+    "Central Silk Board Junction (Hosur Rd / ORR)": ("Silk Board Junction, Hosur Road, Bengaluru, Karnataka", 12.9176, 77.6238),
+    "MG Road - Brigade Road Crossing": ("MG Road - Brigade Rd Crossing, Bengaluru, Karnataka", 12.9754, 77.6067),
+    "Hebbal Flyover (Bellary Rd / Airport Corridor)": ("Hebbal Flyover, Bellary Road, Bengaluru, Karnataka", 13.0358, 77.5970),
+    "Sony World Junction, Koramangala 80ft Rd": ("80 Feet Rd, Sony World Signal, Koramangala, Bengaluru, Karnataka", 12.9345, 77.6256),
+    "Indiranagar 100 Feet Road Junction": ("100 Feet Road, Indiranagar, Bengaluru, Karnataka", 12.9719, 77.6412),
+    "Electronic City Toll Junction": ("Hosur Elevated Tollway, Electronic City, Bengaluru, Karnataka", 12.8452, 77.6602),
+    "Majestic Kempegowda Interchange": ("Kempegowda Bus Station, Majestic, Bengaluru, Karnataka", 12.9767, 77.5713),
+    "Alliance University, Anekal": ("Alliance University, Chikkahagade Cross, Anekal, Bengaluru, Karnataka", 12.7286, 77.7071),
+}
 
-    presets = {
-        "Custom Location": ("", 12.9716, 77.5946),
-        "Central Silk Board Junction (Hosur Rd / ORR)": ("Silk Board Junction, Hosur Road, Bengaluru, Karnataka", 12.9176, 77.6238),
-        "MG Road - Brigade Road Crossing": ("MG Road - Brigade Rd Crossing, Bengaluru, Karnataka", 12.9754, 77.6067),
-        "Hebbal Flyover (Bellary Rd / Airport Corridor)": ("Hebbal Flyover, Bellary Road, Bengaluru, Karnataka", 13.0358, 77.5970),
-        "Sony World Junction, Koramangala 80ft Rd": ("80 Feet Rd, Sony World Signal, Koramangala, Bengaluru, Karnataka", 12.9345, 77.6256),
-        "Indiranagar 100 Feet Road Junction": ("100 Feet Road, Indiranagar, Bengaluru, Karnataka", 12.9719, 77.6412),
-        "Electronic City Toll Junction": ("Hosur Elevated Tollway, Electronic City, Bengaluru, Karnataka", 12.8452, 77.6602),
-        "Majestic Kempegowda Interchange": ("Kempegowda Bus Station, Majestic, Bengaluru, Karnataka", 12.9767, 77.5713),
-    }
 
-    choice = st.selectbox("1-Click Bengaluru Junction Preset:", list(presets.keys()))
-    preset_loc, preset_lat, preset_lon = presets[choice]
+def _phone_url(addr: str) -> str:
+    """Turn what the IP Webcam app shows (e.g. 192.168.43.1:8080) into its video stream address."""
+    a = addr.strip().rstrip("/")
+    if not a:
+        return ""
+    if not a.startswith(("http://", "https://", "rtsp://")):
+        a = "http://" + a
+    host = a.split("://", 1)[1]
+    if ":" not in host.split("/")[0]:
+        a = a.replace(host.split("/")[0], host.split("/")[0] + ":8080", 1)
+    if not a.split("://", 1)[1].count("/"):
+        a += "/video"
+    return a
 
-    with st.form("add_cam_form", clear_on_submit=False):
-        name = st.text_input("Camera Name", placeholder="e.g. Indiranagar 100ft Rd - Cam 1")
-        loc_val = st.text_input("Junction Location (Bengaluru, Karnataka)", value=preset_loc or "Bengaluru, Karnataka")
-        kind = st.selectbox("Source Type", ["RTSP", "VIDEO_FILE", "WEBCAM"])
-        url = st.text_input("Stream Address or Video Path", placeholder="rtsp://user:pass@10.0.0.5:554/stream1 or data/videos/...")
-        c1, c2 = st.columns(2)
-        lat = c1.number_input("Latitude (°N)", value=preset_lat, format="%.4f")
-        lon = c2.number_input("Longitude (°E)", value=preset_lon, format="%.4f")
 
-        submitted = st.form_submit_button("Save & Register Camera", type="primary", use_container_width=True)
-        if submitted:
-            if not name.strip() or not url.strip():
-                st.error("Please enter a camera name and stream address/path.")
+def _probe(src, timeout_s: float = 8.0):
+    """Open the source and read one frame, giving up after timeout_s so a wrong address never freezes the page.
+    Returns (frame or None, message)."""
+    import threading
+    out = {}
+
+    def work():
+        try:
+            if isinstance(src, str) and "://" in src:
+                cap = cv2.VideoCapture(src, cv2.CAP_FFMPEG,
+                                       [cv2.CAP_PROP_OPEN_TIMEOUT_MSEC, int(timeout_s * 1000),
+                                        cv2.CAP_PROP_READ_TIMEOUT_MSEC, int(timeout_s * 1000)])
             else:
-                with session() as db:
-                    new_cam = CameraSource(
-                        name=name.strip(),
-                        location=loc_val.strip(),
-                        source_type=kind,
-                        source_url=url.strip(),
-                        latitude=lat,
-                        longitude=lon,
-                        status="ONLINE" if kind == "VIDEO_FILE" else "OFFLINE",
-                    )
-                    db.add(new_cam)
-                    db.commit()
-                st.toast(f"Camera '{name}' registered in Bengaluru ({lat:.4f}, {lon:.4f})!")
-                st.session_state.cam_tab = WALL
-                st.rerun()
+                cap = cv2.VideoCapture(src)
+            out["opened"] = cap.isOpened()
+            ok, frame = cap.read() if cap.isOpened() else (False, None)
+            out["fps"] = cap.get(cv2.CAP_PROP_FPS) if cap.isOpened() else 0
+            cap.release()
+            out["frame"] = frame if ok else None
+        except Exception as e:  # noqa: BLE001
+            out["err"] = str(e)
+
+    t = threading.Thread(target=work, daemon=True)
+    t.start()
+    t.join(timeout_s + 2)
+    if t.is_alive():
+        return None, "No reply from the camera. Check the address and that both devices are on the same network."
+    if out.get("err"):
+        return None, f"Could not open the source: {out['err']}"
+    f = out.get("frame")
+    if f is None and not out.get("opened"):
+        return None, ("Could not connect. Check the address, that the camera app is running, and that the laptop "
+                      "is on the same network (the phone's hotspot).")
+    if f is None:
+        return None, "Connected, but no picture arrived. Check the address (a phone stream ends with /video)."
+    h, w = f.shape[:2]
+    fps = out.get("fps") or 0
+    return f, f"Connected · {w}×{h}" + (f" · {fps:.0f} FPS" if 0 < fps < 120 else "")
+
+
+def _render_add_camera():
+    """Register a camera: pick the kind of source, test the connection, place it on the map, save."""
+    ss = st.session_state
+    st.markdown("### Register a camera")
+    st.markdown('<div class="small">Choose the kind of camera, test that the picture comes through, then save. '
+                'The camera then appears on the Video wall and can run live AI detection.</div>',
+                unsafe_allow_html=True)
+
+    left, right = st.columns([1.25, 1], gap="large")
+    with left:
+        st.markdown("**1. Camera source**")
+        kind_label = st.radio("Kind of camera", list(SOURCE_KINDS), key="reg_kind", horizontal=False,
+                              label_visibility="collapsed")
+        kind = SOURCE_KINDS[kind_label]
+        src = None
+        if kind == "MOBILE":
+            st.markdown('<div class="note-blue">On the phone: install <b>IP Webcam</b> (Android), set video '
+                        'resolution to 640×480 or 1280×720 and tap <b>Start server</b>. Connect this laptop to the '
+                        "phone's hotspot (college Wi-Fi usually blocks phone-to-laptop streams). Type the address "
+                        'shown at the bottom of the phone screen.</div>', unsafe_allow_html=True)
+            addr = st.text_input("Address shown on the phone", placeholder="192.168.43.1:8080", key="reg_phone")
+            src = _phone_url(addr) if addr.strip() else None
+            if src:
+                st.caption(f"Stream address: {src}")
+        elif kind == "RTSP":
+            src = st.text_input("Stream address", placeholder="rtsp://user:password@10.0.0.5:554/stream1",
+                                key="reg_rtsp").strip() or None
+            st.caption("From the camera's or NVR's settings. HTTP/MJPEG addresses (http://…) also work.")
+        elif kind == "WEBCAM":
+            idx = st.number_input("Device number", min_value=0, max_value=9, value=0, step=1, key="reg_idx",
+                                  help="0 is the laptop's built-in camera. A phone connected with DroidCam or "
+                                       "Iriun Webcam is usually 1.")
+            src = int(idx)
+            st.caption("0 = built-in camera · 1 = second camera (USB camera, DroidCam or Iriun on a phone)")
+        else:
+            vids = sorted(str(p).replace("\\", "/") for p in Path("data/videos").glob("*.mp4"))
+            pick = st.selectbox("Video in data/videos", vids + ["Other path…"], key="reg_vid") if vids else "Other path…"
+            src = (st.text_input("Video path", placeholder="data/videos/my_clip.mp4", key="reg_vpath").strip() or None) \
+                if pick == "Other path…" else pick
+
+        tested = ss.get("reg_test")
+        if st.button("Test connection", key="reg_test_btn", disabled=src is None, use_container_width=True):
+            with st.spinner("Connecting…"):
+                frame, msg = _probe(src)
+            ss.reg_test = {"src": src, "ok": frame is not None, "msg": msg,
+                           "jpg": cv2.imencode(".jpg", cv2.resize(frame, (480, int(480 * frame.shape[0] / frame.shape[1]))))[1].tobytes()
+                           if frame is not None else None}
+            tested = ss.reg_test
+        if tested and tested.get("src") == src:
+            if tested["ok"]:
+                st.markdown(f'<div class="note-blue"><b>{ui.esc(tested["msg"])}</b></div>', unsafe_allow_html=True)
+                st.image(tested["jpg"], caption="Picture from the camera", width=360)
+            else:
+                st.markdown(f'<div class="note-amber"><b>Not connected.</b> {ui.esc(tested["msg"])}</div>',
+                            unsafe_allow_html=True)
+
+    with right:
+        st.markdown("**2. Name and place**")
+        default_name = {"MOBILE": "Demo - Mobile camera", "WEBCAM": "Demo - Webcam"}.get(kind, "")
+        name = st.text_input("Camera name", value=default_name, placeholder="e.g. Indiranagar 100ft Rd - Cam 1",
+                             key=f"reg_name_{kind}")
+        junction = st.selectbox("Junction", list(JUNCTIONS), key="reg_junction",
+                                help="Sets the address and map position. Pick Custom location to type your own.")
+        j_loc, j_lat, j_lon = JUNCTIONS[junction]
+        loc = st.text_input("Location", value=j_loc or "Bengaluru, Karnataka", key=f"reg_loc_{junction}")
+        c1, c2 = st.columns(2)
+        lat = c1.number_input("Latitude (°N)", value=j_lat, format="%.4f", key=f"reg_lat_{junction}")
+        lon = c2.number_input("Longitude (°E)", value=j_lon, format="%.4f", key=f"reg_lon_{junction}")
+
+        with session() as db:
+            taken = {n.lower() for (n,) in db.query(CameraSource.name).all()}
+        problem = None
+        if not name.strip():
+            problem = "Enter a camera name."
+        elif name.strip().lower() in taken:
+            problem = "A camera with this name already exists. Use a different name."
+        elif src is None or src == "":
+            problem = "Enter the camera address first."
+        ok_conn = bool(tested and tested.get("src") == src and tested.get("ok"))
+        if kind in HANDHELD_KINDS:
+            st.caption("Phone and webcam cameras start with helmet, triple-riding and seatbelt checks only. Red light, "
+                       "wrong way, parking and unsafe movement need a fixed camera with a drawn stop line or lane; "
+                       "switch them on in Calibration once the camera is mounted still.")
+        if not problem and not ok_conn:
+            st.caption("Tip: test the connection first. You can still save a camera that is not reachable now.")
+        if problem:
+            st.caption(problem)
+
+        st.markdown("**3. Save**")
+        b1, b2 = st.columns(2)
+        save = b1.button("Save camera", type="primary", disabled=problem is not None, use_container_width=True,
+                         key="reg_save")
+        save_run = b2.button("Save and open live detection", disabled=problem is not None, use_container_width=True,
+                             key="reg_save_run")
+        if save or save_run:
+            with session() as db:
+                cam = CameraSource(name=name.strip(), location=loc.strip() or "Bengaluru, Karnataka",
+                                   source_type=kind, source_url=str(src), latitude=lat, longitude=lon,
+                                   status="ONLINE" if (kind == "VIDEO_FILE" or ok_conn) else "OFFLINE")
+                db.add(cam)
+                db.commit()
+                new_id = cam.id
+            if kind in HANDHELD_KINDS:
+                # a phone or webcam has no fixed stop line, lane or parking zone: keep only the rules that work
+                # on any picture; they can be switched on later in Calibration once the camera is mounted still
+                cameras_setup.save_camera_calibration(new_id, {"rules": dict(HANDHELD_RULES)})
+            for k in ("reg_test", "reg_phone", "reg_rtsp"):
+                ss.pop(k, None)
+            st.toast(f"Camera '{name.strip()}' registered")
+            if save_run:
+                ss.live_sel = [new_id]
+                ss.cam_tab = LIVE
+            else:
+                ss.cam_tab = WALL
+            st.rerun()
 
 
 def render():

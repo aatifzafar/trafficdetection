@@ -221,7 +221,7 @@ def _evaluation():
                          column_config={k: st.column_config.NumberColumn(format="%.3f")
                                         for k in ("Precision", "Recall", "F1", "mAP@0.50", "mAP@0.50:0.95")})
         st.markdown(f'<div class="small">Helmet / no-helmet / number-plate model ({ui.esc(data.get("model", ""))}), '
-                    'validation set of 803 unseen images. Full comparison on the Evaluation page.</div>',
+                    'validation set of 803 unseen images. Full comparison under System → Accuracy.</div>',
                     unsafe_allow_html=True)
         bench = Path("data/benchmark_results.json")
         if bench.exists():

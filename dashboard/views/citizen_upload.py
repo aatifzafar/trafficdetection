@@ -1,4 +1,4 @@
-"""Upload proof of violation: a citizen's video or photo goes through detection, then to the review queue."""
+"""Citizen reports: a citizen's video or photo goes through detection, then to the review queue."""
 
 import datetime
 
@@ -37,8 +37,8 @@ def _local_to_utc(d: datetime.date, t: datetime.time) -> datetime.datetime:
 
 
 def render():
-    ui.page_header("Upload proof of violation",
-                   "Citizens can send a video or photo of a traffic violation. An officer checks every upload.")
+    ui.page_header("Citizen reports",
+                   "Upload a citizen's photo or video of a traffic violation. The AI checks it and an officer reviews every report.")
     with session() as db:
         cams = db.query(CameraSource).order_by(CameraSource.location).all()
         cam_opts = {None: "Not near a camera / other place"} | {c.id: f"{c.location} ({c.name})" for c in cams}

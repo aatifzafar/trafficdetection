@@ -1,4 +1,4 @@
-"""Evaluation: trained accuracy of each model on our dataset, and speed benchmarks. Model comparison lives on the Models page."""
+"""Evaluation: trained accuracy of each model on our dataset, and speed benchmarks. Model comparison lives under System → AI models."""
 
 import json
 from pathlib import Path
@@ -21,18 +21,18 @@ def _model_comparison():
     with ui.panel():
         st.markdown("### Which detection model?")
         st.markdown('<div class="small">Review 1 planned YOLOv8; the project moved to YOLO26 (January 2026). The '
-                    '<b>Models</b> page lists YOLO26, YOLO11, YOLOv10, YOLOv8 and YOLOv5 with their published accuracy '
+                    '<b>AI models</b> section lists YOLO26, YOLO11, YOLOv10, YOLOv8 and YOLOv5 with their published accuracy '
                     'and speed, compares any of them on our own video, and sets the live model.</div>', unsafe_allow_html=True)
-        st.button("Open the Models page", on_click=lambda: st.session_state.update(nav="Models"))
+        st.button("Open AI models", on_click=lambda: st.session_state.update(sys_tab="AI models"))
 
 
 def _accuracy():
     with ui.panel():
-        st.markdown("### Accuracy after training on our dataset (helmet, no helmet, number plate)")
+        st.markdown("### Accuracy of each trained model")
         found = {}
         for p in sorted(Path("data").glob("evaluation_results_*.json")):
             data = _load(p)
-            if data:
+            if data and data.get("overall"):  # files without measured accuracy (e.g. the synthetic LSTM) are skipped
                 found[p.stem.replace("evaluation_results_", "")] = data
         if not found and Path("data/evaluation_results.json").exists():
             data = _load(Path("data/evaluation_results.json"))
@@ -113,7 +113,7 @@ def _benchmark():
 
 
 def render():
-    ui.page_header("Evaluation", "Which detection model, how accurate and how fast")
+    ui.page_header("Accuracy", "Which detection model, how accurate and how fast")
     _model_comparison()
     _accuracy()
     _benchmark()

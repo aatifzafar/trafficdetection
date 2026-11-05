@@ -45,8 +45,8 @@ class PhotoOrientationAnalyzer:
     def _load_yolo_model(self):
         if self.yolo_model_path.exists():
             try:
-                from ultralytics import YOLO
-                self.yolo_model = YOLO(str(self.yolo_model_path))
+                from algorithms.detection.detector import load_yolo  # loaded once, shared by every upload
+                self.yolo_model = load_yolo(str(self.yolo_model_path))
             except Exception:
                 self.yolo_model = None
 

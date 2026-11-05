@@ -86,7 +86,7 @@ def annotate_image(image: Image.Image, boxes) -> Image.Image:
 
 
 def render():
-    ui.page_header("Seatbelt Lab", "Experimental: test the seatbelt model on car-cabin images "
+    ui.page_header("Seatbelt test", "Experimental: test the seatbelt model on car-cabin images "
                                    "(windshield crop, then detection; results always go to officer review)")
 
     # Metrics banner from evaluation report

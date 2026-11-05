@@ -96,7 +96,7 @@ class Violation(Base):
     source = Column(String(20), default="CCTV")  # CCTV | CITIZEN
     merged_count = Column(Integer, default=0)  # duplicate detections merged into this record
     light_condition = Column(String(10), nullable=True)  # day | night
-    # citizen uploads (Upload proof page)
+    # citizen uploads (Citizen reports page)
     reporter_name = Column(String(100), nullable=True)
     reporter_phone = Column(String(20), nullable=True)
     report_note = Column(Text, nullable=True)

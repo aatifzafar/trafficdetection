@@ -178,7 +178,7 @@ def _results(rep, live):
             col.button(f"Go live with {mr.short(r['model'])}", key=f"golive_{r['model']}", use_container_width=True,
                        on_click=_go_live, args=(r["model"],))
     st.markdown('<div class="small">Detection counts and confidence show how the pretrained models see this video; they are not '
-                'accuracy (that needs labelled ground truth — see the Evaluation page). Timings depend on the computer.</div>',
+                'accuracy (that needs labelled ground truth — see System → Accuracy). Timings depend on the computer.</div>',
                 unsafe_allow_html=True)
 
 
@@ -192,7 +192,7 @@ def render():
 
     head, cur = st.columns([2.2, 1.4], vertical_alignment="center")
     with head:
-        ui.page_header("Models", "Pick models from the list, compare them on the same video, then choose the live model")
+        ui.page_header("AI models", "Pick models from the list, compare them on the same video, then choose the live model")
     with cur:
         lm = mr.MODELS.get(live)
         name = lm["short"] if lm else live
@@ -280,5 +280,5 @@ def render():
         st.markdown(f'<div class="small" style="margin-top:6px">{ui.esc(m["note"])} '
                     f'Published: {m["published"]["mAP50_95"]} mAP · '
                     f'{_fmt(m["published"]["cpu_onnx_ms"], "{} ms")} CPU · {m["published"]["params_m"]} M parameters. '
-                    'The choice is saved in data/app_settings.yaml (same as the Settings page). Medium (m) models are '
+                    'The choice is saved in data/app_settings.yaml (same as System → Settings). Medium (m) models are '
                     'more accurate but several times slower on a laptop CPU.</div>', unsafe_allow_html=True)

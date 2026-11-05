@@ -46,7 +46,7 @@ def render():
             model_key = st.selectbox("Vehicle / person detection model", keys,
                                      index=keys.index(model0) if model0 in keys else 0, format_func=mr.label,
                                      help="YOLO26n is the project model. YOLOv8n was the Review 1 plan; keep it to compare. "
-                                          "The Evaluation page compares both on the same video.")
+                                          "System → Accuracy compares both on the same video.")
             conf = st.slider("Confidence threshold", 0.10, 0.90, round(conf0, 2), 0.05,
                              help="Lower finds more objects but adds false boxes. 0.35 is the project default.")
             imgsz0 = int((cfg.get("detection") or {}).get("custom_imgsz") or 640)

@@ -1,5 +1,5 @@
 """
-Citizen proof uploads (dashboard page "Upload proof").
+Citizen proof uploads (dashboard page "Citizen reports").
 
 A citizen uploads a video or photo of a traffic violation. Videos and photos are run
 through the detection pipeline with our trained violation detector (helmet compliance,
@@ -27,39 +27,6 @@ from backend.database.database import SessionLocal, ensure_schema
 from backend.db_models.models import Evidence, Violation, Vehicle
 
 logger = logging.getLogger(__name__)
-
-
-WRONG_SIDE_CONF = 0.5
-
-
-def _iou(a, b) -> float:
-    ix1, iy1, ix2, iy2 = max(a[0], b[0]), max(a[1], b[1]), min(a[2], b[2]), min(a[3], b[3])
-    inter = max(0.0, ix2 - ix1) * max(0.0, iy2 - iy1)
-    union = (a[2] - a[0]) * (a[3] - a[1]) + (b[2] - b[0]) * (b[3] - b[1]) - inter
-    return inter / union if union > 0 else 0.0
-
-
-def _wrong_side_boxes(img: np.ndarray) -> List[Dict[str, Any]]:
-    """Vehicles the team's wrong-side model (models/wrong_way_yolo.pt, classes right-side / wrong-side)
-    marks as driving on the wrong side. A photo cannot prove motion, so these stay unverified candidates
-    for the officer."""
-    try:
-        from algorithms.calibration.camera_calibration import load_config_fresh
-        from algorithms.detection.detector import load_yolo
-        path = ((load_config_fresh().get("detection") or {}).get("model_wrong_way") or "models/wrong_way_yolo.pt")
-        if not Path(path).exists():
-            return []
-        model = load_yolo(path)
-        res = model(img, conf=WRONG_SIDE_CONF, verbose=False)[0]
-        out = []
-        for box, cls, conf in zip(res.boxes.xyxy.tolist(), res.boxes.cls.tolist(), res.boxes.conf.tolist()):
-            if str(model.names[int(cls)]).lower().replace("_", "-") == "wrong-side":
-                out.append({"bbox": [float(v) for v in box], "class_name": "vehicle", "confidence": round(float(conf), 3),
-                            "orientation": "WRONG_SIDE (wrong-side model)", "score": round(float(conf), 3)})
-        return out
-    except Exception as e:  # never break an upload because of the optional model
-        logger.warning(f"wrong-side model skipped: {e}")
-        return []
 
 UPLOAD_DIR = Path("data/citizen_uploads")
 VIDEO_TYPES = {".mp4", ".avi", ".mkv", ".mov"}
@@ -754,14 +721,6 @@ def process_upload(upload: Path, info: Dict[str, Any],
                 ]
                 photo_analyzer = PhotoOrientationAnalyzer()
                 orientation_res = photo_analyzer.analyze_photo(img, detected_vehicles, reported_violation=claimed_viol)
-                wrong_side = _wrong_side_boxes(img)
-                if wrong_side:
-                    orientation_res["has_outlier"] = True
-                    for b in wrong_side:
-                        if not any(_iou(b["bbox"], c["bbox"]) > 0.3 for c in orientation_res.get("outlier_candidates", [])):
-                            orientation_res.setdefault("outlier_candidates", []).append(b)
-                    orientation_res["consensus_summary"] = (orientation_res.get("consensus_summary") or "") + \
-                        f" | wrong-side model: {len(wrong_side)} vehicle(s) on the wrong side of the road"
 
                 info["model_predictions"] = [
                     {

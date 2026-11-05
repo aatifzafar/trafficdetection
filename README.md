@@ -55,7 +55,7 @@ This project delivers a **production-structured, real-time AI computer vision sy
    - Vehicle centroid trajectory vector smoothing across sliding windows.
    - Angular deviation calculation ($> 120^\circ$) against permitted lane vectors.
 6. **Citizen Proof AI Ingestion (Photo & Video):**
-   - Citizens can upload videos or smartphone photos on the *Upload proof* tab.
+   - Citizens can upload videos or smartphone photos on the *Citizen reports* tab.
    - Photos and videos automatically pass through the custom AI model with auto-calibrated confidence thresholds and bounding box visualization.
 
 ### Key Capabilities
@@ -244,7 +244,7 @@ cp .env.example .env
 streamlit run dashboard/app.py
 ```
 Open **`http://localhost:8501`** in your browser.
-- **Pages Available:** Overview · Review queue · Live cameras · Upload proof · Violations · Vehicles · Analytics · Models · Evaluation · Camera setup · Settings.
+- **Pages Available:** Overview · Review queue · Cameras (video wall, live detection, calibration, register) · Violations · Vehicles · Citizen reports · Analytics · System (AI models, Accuracy, Seatbelt test, Settings).
 - **Review Queue:** Review pending violations, inspect forensic snapshots with AI bounding boxes, approve to generate prototype notices, or reject false positives.
 - **Upload Proof:** Upload photos or recorded video clips to run immediate AI violation analysis.
 
@@ -291,7 +291,7 @@ All 31 automated test suites execute against an isolated test database.
    ```bash
    streamlit run dashboard/app.py
    ```
-   Navigate to the **Seatbelt Lab** page to upload single images or a ZIP archive (up to 3,000 images) or browse the curated held-out test samples (`data/seatbelt/test_samples/`), inspect color-coded bounding boxes, filter by violations, and download audit CSVs.
+   Navigate to **System → Seatbelt test** to upload single images or a ZIP archive (up to 3,000 images) or browse the curated held-out test samples (`data/seatbelt/test_samples/`), inspect color-coded bounding boxes, filter by violations, and download audit CSVs.
 
 5. **FastAPI Endpoints:**
    - `POST /api/seatbelt/detect`: Upload windshield image for inference.

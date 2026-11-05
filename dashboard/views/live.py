@@ -177,7 +177,7 @@ def render():
             if webcam_chosen:
                 st.markdown(f'<div class="note-blue" style="margin-top:6px">{ui.esc(WEBCAM_TIP)}</div>', unsafe_allow_html=True)
             st.markdown('<div class="small" style="margin-top:6px">To check a recorded video or a citizen\'s clip, '
-                        'use the <b>Upload proof</b> page.</div>', unsafe_allow_html=True)
+                        'use the <b>Citizen reports</b> page.</div>', unsafe_allow_html=True)
         alert_banner = st.empty()
 
         if compare and sel:
@@ -312,7 +312,7 @@ def render():
                         '<th>Objects / frame</th><th>Mean confidence</th><th>Vehicles tracked</th><th>Violations it would flag</th></tr>'
                         f'{rows}</table>', unsafe_allow_html=True)
             st.markdown('<div class="small">Practice run: nothing was saved. Both models ran one after the other on this computer, '
-                        'so the timings are directly comparable. For a saved report use the Evaluation page.</div>',
+                        'so the timings are directly comparable. For a saved report use System → Accuracy.</div>',
                         unsafe_allow_html=True)
         return
     total_new = sum(s["new"] for s in streams)

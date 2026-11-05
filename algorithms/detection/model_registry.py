@@ -94,9 +94,9 @@ def short(key_or_path: str) -> str:
     if "seatbelt" in k:
         return "YOLO26n (Seatbelt)"
     if "wrong_way_yolo" in k:
-        return "YOLO (Wrong Way)"
+        return "YOLOv8n (Wrong side)"
     if "wrong_way" in k:
-        return "YOLOv8n wrong-side (Roboflow val)"
+        return "Bi-LSTM (Wrong way, synthetic data)"
     return MODELS[k]["short"] if k in MODELS else Path(str(key_or_path)).stem
 
 
