@@ -15,7 +15,13 @@ sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), "..")
 
 from pathlib import Path
 
+import logging
+
 import streamlit as st
+
+# Streamlit prints a deprecation notice to the terminal for every use_container_width call; on Windows a
+# console flooded with these lines slows each page. Keep real warnings, drop these notices.
+logging.getLogger("streamlit.deprecation_util").setLevel(logging.ERROR)
 
 from backend.database.database import SessionLocal, ensure_schema
 from backend.db_models.models import Violation

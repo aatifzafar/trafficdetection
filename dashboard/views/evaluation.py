@@ -73,8 +73,9 @@ def _accuracy():
                          column_config={c: st.column_config.NumberColumn(format="%.3f") for c in pdf.columns
                                         if c not in ("Class", "Model")})
         plots = [(k, Path("data/training_results") / k) for k in found if (Path("data/training_results") / k).is_dir()]
-        if plots:
-            with st.expander("Training curves and confusion matrices"):
+        if plots and st.toggle("Show training curves and confusion matrices", key="eval_show_plots",
+                               help="Off by default: these images are large and slow the page down."):
+            with st.container():
                 for kind, title in (("results.png", "Training curves (loss and mAP per epoch)"),
                                     ("confusion_matrix_normalized.png", "Confusion matrix (normalised)")):
                     st.markdown(f"**{title}**")

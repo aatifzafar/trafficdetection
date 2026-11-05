@@ -48,7 +48,7 @@ def _kpi(value, label, note, tone="grey"):
 
 def render():
     officer = st.session_state.get("officer", "Officer")
-    ui.page_header("Overview", f"{_greeting()}, {officer} · Bengaluru traffic command")
+    ui.page_header("Overview", f"{_greeting()}, {officer}. Here is the city at a glance.")
 
     ev = _json("data/evaluation_results.json")
     bn = _json("data/benchmark_results.json")
@@ -75,24 +75,32 @@ def render():
         by_cam = dict(db.query(Violation.camera_id, func.count(Violation.id)).group_by(Violation.camera_id).all())
         cam_rows = [(c.name, c.latitude, c.longitude, int(by_cam.get(c.id, 0))) for c in cams]
 
-    k = st.columns(5)
-    k[0].markdown(_kpi(f"{total:,}", "Total violations", f"{today} today", "go"), unsafe_allow_html=True)
-    k[1].markdown(_kpi(acc, "Detection accuracy", acc_note), unsafe_allow_html=True)
-    k[2].markdown(_kpi(lat_v, "Average latency", lat_note), unsafe_allow_html=True)
-    k[3].markdown(_kpi(f"{max(vehicles, plates_seen):,}", "Vehicles tracked", "Unique plates", "go"), unsafe_allow_html=True)
-    k[4].markdown(_kpi(f"{len(cams)}", "Cameras", f"{online} online"), unsafe_allow_html=True)
-    st.write("")
+    waiting = int(by_status.get("PENDING_REVIEW", 0))
+    st.markdown(ui.readout([
+        (f"{total:,}", "Violations recorded", f"{today} today"),
+        (f"{waiting:,}", "Waiting for an officer", "Review queue", "amb" if waiting else ""),
+        (f"{max(vehicles, plates_seen):,}", "Vehicles identified", "by number plate"),
+        (f"{online}/{len(cams)}", "Cameras online", None, "stop" if cams and online < len(cams) / 2 else ""),
+        (acc, "Detection accuracy", acc_note),
+        (lat_v, "Processing time", lat_note),
+    ]), unsafe_allow_html=True)
 
     left, right = st.columns([7, 5], gap="medium")
     with left:
         with ui.panel():
-            st.markdown(f"### Violations by month · {datetime.datetime.utcnow().year}")
-            counts = [0] * 12
+            # last 30 days, one bar per day (a year view is mostly empty months for a new deployment)
+            day0 = datetime.datetime.utcnow().date() - datetime.timedelta(days=29)
+            days = [day0 + datetime.timedelta(days=i) for i in range(30)]
+            per_day = {d: 0 for d in days}
             for t in ts_year:
-                counts[t.month - 1] += 1
-            fig = go.Figure(go.Bar(x=MONTHS, y=counts, marker_color=SIGN, width=0.6,
-                                   hovertemplate="%{x}: %{y}<extra></extra>"))
-            fig.update_layout(height=280, **LAYOUT)
+                if t.date() in per_day:
+                    per_day[t.date()] += 1
+            month_total = sum(per_day.values())
+            st.markdown(f"### Violations in the last 30 days: {month_total:,}")
+            fig = go.Figure(go.Bar(x=days, y=[per_day[d] for d in days], marker_color=SIGN,
+                                   hovertemplate="%{x|%d %b}: %{y}<extra></extra>"))
+            fig.update_layout(height=280, bargap=0.25, **LAYOUT)
+            fig.update_xaxes(tickformat="%d %b", dtick=7 * 86400000)
             fig.update_yaxes(gridcolor="#EEF1F4", rangemode="tozero")
             st.plotly_chart(fig, use_container_width=True, config={"displayModeBar": False})
     with right:
@@ -143,7 +151,7 @@ def render():
                 ui.empty("No camera locations", "Add cameras with latitude and longitude in Camera setup.")
     with b2:
         with ui.panel():
-            st.markdown("### Quick stats")
+            st.markdown("### Review outcomes")
             denom = max(1, total)
             rows = [("Vehicles tracked", max(vehicles, plates_seen), None),
                     ("Approved / notice", by_status.get("APPROVED", 0), "#2E7D4F"),
@@ -156,7 +164,7 @@ def render():
                 for n, v, c in rows) + "</table>", unsafe_allow_html=True)
     with b3:
         with ui.panel():
-            st.markdown("### Risk & severity")
+            st.markdown("### Severity")
             tmap = dict(by_type)
             st.markdown("".join(
                 f'<div style="display:flex;justify-content:space-between;padding:9px 0;border-bottom:1px solid #EDF0F3">'

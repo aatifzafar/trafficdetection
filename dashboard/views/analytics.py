@@ -65,13 +65,12 @@ def render():
             secs = (rev.reviewed - rev.created).dt.total_seconds().clip(lower=0).mean()
             avg_review = f"{int(secs // 3600)} h {int(secs % 3600 // 60)} min" if secs >= 3600 else f"{int(secs // 60)} min {int(secs % 60)} s"
 
-        k = st.columns(4)
-        k[0].markdown(ui.stat(f"{len(df):,}", "Violations detected"), unsafe_allow_html=True)
-        k[1].markdown(ui.stat(f"{approved:,}", "Approved by officers"), unsafe_allow_html=True)
-        k[2].markdown(ui.stat(f"{100 * rejected / decided:.1f}%" if decided else "—",
-                              "Rejected by officers (model mistakes)"), unsafe_allow_html=True)
-        k[3].markdown(ui.stat(avg_review or "—", "Average time to review"), unsafe_allow_html=True)
-        st.write("")
+        st.markdown(ui.readout([
+            (f"{len(df):,}", "Violations detected"),
+            (f"{approved:,}", "Approved by officers"),
+            (f"{100 * rejected / decided:.1f}%" if decided else "—", "Rejected as model mistakes"),
+            (avg_review or "—", "Average time to review"),
+        ]), unsafe_allow_html=True)
 
         c1, c2 = st.columns([1.5, 1], gap="medium")
         with c1:
@@ -207,11 +206,10 @@ def _evaluation():
 
         overall = data.get("overall") or {}
         if overall:
-            tiles = [(overall.get("precision"), "precision"), (overall.get("recall"), "recall"),
-                     (_f1(overall), "F1 score"), (overall.get("mAP50"), "mAP@0.50")]
-            st.markdown('<div style="display:grid;grid-template-columns:repeat(4,1fr);gap:10px;margin-bottom:10px">'
-                        + "".join(ui.stat(f"{v * 100:.1f}%" if isinstance(v, (int, float)) else "—", lbl)
-                                  for v, lbl in tiles) + "</div>", unsafe_allow_html=True)
+            tiles = [(overall.get("precision"), "Precision"), (overall.get("recall"), "Recall"),
+                     (_f1(overall), "F1 score"), (overall.get("mAP50"), "mAP at 0.50")]
+            st.markdown(ui.readout([(f"{v * 100:.1f}%" if isinstance(v, (int, float)) else "—", lbl) for v, lbl in tiles]),
+                        unsafe_allow_html=True)
         per = data.get("per_class") or data.get("classes") or {}
         if isinstance(per, dict) and per:
             rows = [{"Class": str(c).replace("_", " ").capitalize(), "Precision": m.get("precision"),

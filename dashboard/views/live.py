@@ -119,12 +119,13 @@ def render():
     with main:
         head, add = st.columns([4, 1], vertical_alignment="center")
         with head:
-            ui.page_header("Live cameras", "Pick a location, choose up to four cameras and press Start")
-        with add.popover("＋ Add camera", use_container_width=True, disabled=running):
+            st.markdown('<div class="small" style="padding-top:6px">Choose up to four cameras and press Start. '
+                        'Every confirmed violation goes to the review queue.</div>', unsafe_allow_html=True)
+        with add.popover("Add camera", use_container_width=True, disabled=running):
             _add_camera_form()
         with ui.panel():
             if not cams:
-                ui.empty("No cameras yet", "Use “＋ Add camera” to register a CCTV stream (RTSP), a webcam or a video file.")
+                ui.empty("No cameras yet", "Use Add camera to register a CCTV stream (RTSP), a webcam or a video file.")
                 return
             locations = sorted({c["location"] for c in cams})
             f1, f2, f3 = st.columns([1.6, 1.4, 1])

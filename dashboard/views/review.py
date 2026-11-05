@@ -245,8 +245,8 @@ def render():
         with left_col:
             st.markdown(
                 f'<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:6px;">'
-                f'<span style="font-weight:700;font-size:14px;color:var(--ink);">CASES ({len(items)})</span>'
-                f'<span style="font-size:12px;color:var(--muted);">Oldest First</span></div>',
+                f'<span style="font-weight:600;font-size:15px;color:var(--ink);">{len(items)} cases</span>'
+                f'<span style="font-size:13px;color:var(--muted);">oldest first</span></div>',
                 unsafe_allow_html=True
             )
 
@@ -264,7 +264,7 @@ def render():
                             else:
                                 st.markdown('<div style="width:100%;height:45px;background:#E2E6EB;border-radius:4px;"></div>', unsafe_allow_html=True)
                         with meta_c:
-                            active_pill = '<span class="rq-active-badge">ACTIVE</span> ' if is_active else ''
+                            active_pill = '<span class="rq-active-badge">Open</span> ' if is_active else ''
                             st.markdown(
                                 f'<div style="display:flex;align-items:center;gap:4px;">{active_pill}{ui.violation_tag(v.violation_type, v.source)}</div>'
                                 f'<div style="margin:4px 0 2px;">{ui.plate_html(v.plate_number, small=True)}</div>'
@@ -307,26 +307,22 @@ def render():
                         conf_pct = f"{int(viol.confidence * 100)}%"
                         if viol.confidence > 0:
                             status_badge = (
-                                f'<span style="font-size:12px;font-weight:700;color:#fff;background:#C62828;padding:3px 8px;border-radius:4px;">'
-                                f'⚠️ POTENTIAL WRONG WAY · NOT VERIFIED · {conf_pct} AI CONFIDENCE</span> '
-                                f'<span style="font-size:12px;font-weight:700;color:#fff;background:#D97706;padding:3px 8px;border-radius:4px;">'
-                                f'PENDING OFFICER REVIEW</span>'
+                                f'<span class="tag t-stop">Possible wrong way, not verified ({conf_pct} AI confidence)</span> '
+                                f'<span class="tag t-amber">Officer check needed</span>'
                             )
-                            case_title = "Wrong-Way Driving Violation (Photo Candidate — Suspect Marked in Red)"
+                            case_title = "Possible wrong-way driving (suspect marked in red)"
                         else:
                             status_badge = (
-                                '<span style="font-size:12px;font-weight:700;color:#fff;background:#D97706;padding:3px 8px;border-radius:4px;">'
-                                '⚠️ WRONG-WAY: NOT VERIFIED (PHOTO ONLY)</span> '
-                                '<span style="font-size:12px;font-weight:700;color:#fff;background:#6B7280;padding:3px 8px;border-radius:4px;">'
-                                'PENDING OFFICER REVIEW</span>'
+                                '<span class="tag t-amber">Wrong way not verified: photo only</span> '
+                                '<span class="tag t-grey">Officer check needed</span>'
                             )
-                            case_title = "Wrong-Way Incident Report (Motion Unverified — Requires Officer Review)"
+                            case_title = "Wrong-way report: movement not verified"
                     elif viol.violation_type == "WRONG_WAY":
-                        status_badge = f'<span style="font-size:12px;font-weight:700;color:#fff;background:#2E7D4F;padding:2px 8px;border-radius:4px;">✓ WRONG WAY VERIFIED · {int(viol.confidence * 100)}% AI CONFIDENCE</span>'
+                        status_badge = f'<span class="tag t-go">Wrong way confirmed over several frames, {int(viol.confidence * 100)}% AI confidence</span>'
                         case_title = TITLES.get(viol.violation_type, rs.violation_label(viol.violation_type))
                     else:
-                        conf_color = "#2E7D4F" if viol.confidence >= 0.85 else "#C62828" if viol.confidence < 0.70 else "#E9A400"
-                        status_badge = f'<span style="font-size:12px;font-weight:700;color:#fff;background:{conf_color};padding:2px 8px;border-radius:4px;">{int(viol.confidence * 100)}% AI CONFIDENCE</span>'
+                        conf_cls = "t-go" if viol.confidence >= 0.85 else "t-stop" if viol.confidence < 0.70 else "t-amber"
+                        status_badge = f'<span class="tag {conf_cls}">{int(viol.confidence * 100)}% AI confidence</span>'
                         case_title = TITLES.get(viol.violation_type, rs.violation_label(viol.violation_type))
 
                     st.markdown(
@@ -350,11 +346,11 @@ def render():
                     with st.container(key="rq_evidence"):
                         st.image(ev["image"], use_container_width=True)
                 else:
-                    ui.empty("Snapshot Missing", "No evidence image was found on disk for this record.")
+                    ui.empty("No evidence image", "The snapshot for this record is not on this computer.")
 
                 orig_img = meta.get("original_image") or meta.get("upload")
                 if orig_img and Path(orig_img).exists():
-                    with st.expander("📷 View Original Uploaded Photograph (Unannotated)", expanded=False):
+                    with st.expander("Original photo as uploaded", expanded=False):
                         st.image(str(orig_img), caption="Original photograph as uploaded by citizen", use_container_width=True)
 
                 if ev.get("video"):
@@ -402,7 +398,7 @@ def render():
 
                 if viol.merged_count:
                     st.markdown(
-                        f'<div class="note-amber"><b>Merged Event</b>: {viol.merged_count} consecutive repeat detections '
+                        f'<div class="note-amber"><b>Merged</b>: {viol.merged_count} repeat detections '
                         f'of this vehicle were deduplicated into this single case.</div>',
                         unsafe_allow_html=True
                     )
@@ -431,7 +427,7 @@ def render():
 
                 # 1. APPROVE ACTION (HIGH CONTRAST PRIMARY BUTTON)
                 st.markdown('<div class="st-key-btn_approve">', unsafe_allow_html=True)
-                if st.button("Approve & Issue Notice", key=f"btn_app_{viol.id}", use_container_width=True, type="primary"):
+                if st.button("Approve and issue notice", key=f"btn_app_{viol.id}", use_container_width=True, type="primary"):
                     _do("approve", viol.id, next_id=nxt)
                 st.markdown('</div>', unsafe_allow_html=True)
                 st.caption("Creates an official prototype notice and registers fine in Parivahan queue.")
@@ -439,7 +435,7 @@ def render():
                 st.markdown("<hr style='margin:12px 0 10px;border:none;border-top:1px solid #E2E6EB;'>", unsafe_allow_html=True)
 
                 # 2. REJECT ACTION (CLEAR, VISIBLE, DIRECT REASON DROPDOWN)
-                st.markdown("**Reject Detection (False Positive)**")
+                st.markdown("**Reject as a false detection**")
                 rej_reason = st.selectbox(
                     "Rejection Reason",
                     rs.REJECT_REASONS,
@@ -447,14 +443,14 @@ def render():
                     label_visibility="collapsed"
                 )
                 st.markdown('<div class="st-key-btn_reject">', unsafe_allow_html=True)
-                if st.button("Reject Detection", key=f"btn_rej_{viol.id}", use_container_width=True):
+                if st.button("Reject", key=f"btn_rej_{viol.id}", use_container_width=True):
                     _do("reject", viol.id, next_id=nxt, reason=rej_reason)
                 st.markdown('</div>', unsafe_allow_html=True)
-                st.caption("Rejections are saved with reason as training data for future model tuning.")
+                st.caption("The reason is saved and used to retrain the model.")
 
             # Repeat Offender & Prior History Card
             with ui.panel():
-                st.markdown(f"**Vehicle Offense Dossier**")
+                st.markdown("**Vehicle history**")
                 if viol.plate_number and viol.plate_number != "UNIDENTIFIED":
                     history = (
                         db.query(Violation)
@@ -481,13 +477,12 @@ def render():
                             unsafe_allow_html=True
                         )
                     else:
-                        st.markdown('<div class="note-blue"><b>Clean Record</b>: No prior violations logged for this plate.</div>', unsafe_allow_html=True)
+                        st.markdown('<div class="note-blue"><b>No earlier violations</b> recorded for this plate.</div>', unsafe_allow_html=True)
                 else:
                     st.markdown('<div class="small">Number plate is unidentified. Use the plate edit box above to assign the registration number.</div>', unsafe_allow_html=True)
 
                 st.markdown(
                     f'<div style="font-size:11px;color:var(--muted);margin-top:10px;">'
-                    f'Review Officer: <b>{ui.esc(st.session_state.get("officer", "Officer"))}</b> · '
-                    f'Bengaluru Traffic Incident Command</div>',
+                    f'Reviewing as <b>{ui.esc(st.session_state.get("officer", "Officer"))}</b></div>',
                     unsafe_allow_html=True
                 )

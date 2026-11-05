@@ -84,6 +84,9 @@ def _grab_frame(src, nonce: int = 0):
     return frame if ok else None
 
 
+KIND_NAMES = {"VIDEO_FILE": "video file", "RTSP": "CCTV stream", "MOBILE": "phone camera", "WEBCAM": "webcam"}
+
+
 def _mask(url: str) -> str:
     if "@" in url and "://" in url:
         scheme, rest = url.split("://", 1)
@@ -369,16 +372,17 @@ def _render_calibration_view(cams, status, cfg):
             sel = st.session_state.get("cam_sel")
             if sel not in ids:
                 sel = ids[0] if ids else None
+            cam_list = st.container(height=640, border=False)
             for cid, name, loc, kind_, url_ in cams:
                 cal = get_camera_calibration(cfg, cid)
                 online = status.get(cid) == "ONLINE"
-                with ui.panel(selected=True) if cid == sel else st.container():
+                with cam_list, (ui.panel(selected=True) if cid == sel else st.container()):
                     st.markdown(f"**{ui.esc(name)}**<br><span class='small'>{ui.esc(loc)}</span><br>"
-                                f"<span class='small' style='color:{'#2E7D4F' if online else '#8A949E'}'>● "
-                                f"{ui.esc(status.get(cid) or 'UNKNOWN')}</span> "
-                                f"<span class='small'>· {ui.esc(kind_)} · {ui.esc(_mask(str(url_)))}</span><br>{_status(cal)}",
+                                f"<span class='small' style='color:{'#1F7A4A' if online else '#8A949E'}'>"
+                                f"{'Online' if online else 'Offline'}</span>"
+                                f"<span class='small'>, {ui.esc(KIND_NAMES.get(kind_, kind_))}</span><br>{_status(cal)}",
                                 unsafe_allow_html=True)
-                    if cid != sel and st.button("Select", key=f"camsel_{cid}"):
+                    if cid != sel and st.button("Calibrate this camera", key=f"camsel_{cid}", type="tertiary"):
                         st.session_state.cam_sel = cid
                         st.rerun()
         if st.session_state.get("show_add_cam"):

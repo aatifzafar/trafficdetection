@@ -94,13 +94,13 @@ def render():
         res = st.session_state.get("citizen_result")
         if res:
             if res.get("error"):
-                st.error(f"⚠️ Detection Pipeline Warning: {res['error']}")
+                st.error(f"The AI check could not finish: {res['error']}")
             with ui.panel():
                 st.markdown("### Thank you. Your proof was received.")
                 if len(res.get("records", [])) > 1:
                     st.markdown(
-                        f'<div style="background:#FFF3E0;border-left:4px solid #FF9800;padding:10px 14px;border-radius:4px;margin-bottom:12px;">'
-                        f'<b style="color:#E65100;font-size:14px;">Multiple Simultaneous Violations Detected ({len(res["records"])})</b><br>'
+                        f'<div class="note-amber" style="margin-bottom:12px;">'
+                        f'<b>{len(res["records"])} violations found in this upload</b><br>'
                         f'<span style="font-size:12px;color:#333;">The AI vision model detected multiple concurrent traffic offenses in this evidence. Each violation has been recorded separately with its specific penalty for officer review.</span>'
                         f'</div>',
                         unsafe_allow_html=True,
@@ -116,13 +116,13 @@ def render():
                         if r.get("confidence", 0.0) > 0.0:
                             pct = f"{r['confidence'] * 100:.1f}%"
                             how_html = (
-                                f'<b style="color:#C62828">⚠️ Detected by AI ({pct} confidence)</b><br>'
-                                f'<span style="color:#666;font-size:12px;">Visual heading opposes traffic flow (POTENTIAL WRONG WAY · NOT VERIFIED). '
+                                f'<b style="color:var(--stop)">Detected by AI ({pct} confidence)</b><br>'
+                                f'<span style="color:#666;font-size:12px;">Visual heading opposes traffic flow (possible wrong way, not verified). '
                                 f'Forwarded for human officer review.</span>'
                             )
                         else:
                             how_html = (
-                                '<span style="color:#D97706;font-weight:700;">⚠️ Vehicle Localized · Motion Not Verified</span><br>'
+                                '<span style="color:#7A5200;font-weight:600;">Vehicle found, movement not verified</span><br>'
                                 '<span style="color:#666;font-size:12px;">Static photograph has no temporal motion data. Forwarded for human officer review.</span>'
                             )
                     elif r["auto"]:

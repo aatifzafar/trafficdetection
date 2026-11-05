@@ -10,3 +10,16 @@ font = "sans serif"
 headless = true
 enableCORS = false
 enableXsrfProtection = false
+# serves dashboard/static (the Barlow font files) so pages never wait for Google Fonts
+enableStaticServing = true
+# Streamlit normally watches the project for code changes. With datasets/ (thousands of images) and models/
+# in the folder this slows every page on Windows. Restart the dashboard after editing code instead.
+fileWatcherType = "none"
+runOnSave = false
+
+[browser]
+# no usage-statistics calls to the internet from every page
+gatherUsageStats = false
+
+[client]
+toolbarMode = "minimal"

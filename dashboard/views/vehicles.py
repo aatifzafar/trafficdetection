@@ -121,10 +121,13 @@ def render():
     waiting = int((df["Waiting"] > 0).sum()) if total else 0
     fines = int(df["Fine (₹)"].sum()) if total else 0
     high = int((df["Risk"] == "High").sum()) if total else 0
-    st.markdown('<div style="display:grid;grid-template-columns:repeat(5,1fr);gap:10px;margin:4px 0 12px">'
-                f'{ui.stat(total, "Vehicles identified")}{ui.stat(repeat, "Repeat offenders", amber=repeat > 0)}'
-                f'{ui.stat(high, "High-risk vehicles", amber=high > 0)}{ui.stat(waiting, "With cases waiting")}'
-                f'{ui.stat(f"₹{fines:,}", "Fines from approved notices")}</div>', unsafe_allow_html=True)
+    st.markdown(ui.readout([
+        (total, "Vehicles identified"),
+        (repeat, "Repeat offenders", None, "amb" if repeat else ""),
+        (high, "High-risk vehicles", None, "stop" if high else ""),
+        (waiting, "With cases waiting"),
+        (f"₹{fines:,}", "Fines from approved notices"),
+    ]), unsafe_allow_html=True)
 
     with ui.panel():
         c1, c2, c3, c4, c5 = st.columns([2, 1.3, 1.6, 1.2, 1.2], vertical_alignment="bottom")

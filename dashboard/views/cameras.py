@@ -66,13 +66,13 @@ def _render_camera_cards_wall(raw_cams):
 
     # Summary + toolbar
     online_count = sum(1 for c in raw_cams if c.status == "ONLINE")
-    st.markdown(
-        '<div style="display:grid;grid-template-columns:repeat(4,1fr);gap:10px;margin-bottom:10px">'
-        + ui.stat(len(raw_cams), "cameras registered")
-        + ui.stat(online_count, "online")
-        + ui.stat(len(raw_cams) - online_count, "offline", amber=len(raw_cams) > online_count)
-        + ui.stat(len({(c.location or "").split(",")[0] for c in raw_cams}), "junctions")
-        + "</div>", unsafe_allow_html=True)
+    offline = len(raw_cams) - online_count
+    st.markdown(ui.readout([
+        (len(raw_cams), "Cameras registered"),
+        (online_count, "Online"),
+        (offline, "Offline", None, "amb" if offline else ""),
+        (len({(c.location or "").split(",")[0] for c in raw_cams}), "Junctions covered"),
+    ]), unsafe_allow_html=True)
     with st.container(key="wall_toolbar"):
         t1, t2, t3, t4, t5 = st.columns([2.2, 1.2, 1.5, 0.9, 0.9], vertical_alignment="bottom")
         query = t1.text_input("Search", placeholder="Camera name or junction", key="wall_q")
@@ -220,7 +220,8 @@ def _render_camera_cards_wall(raw_cams):
     pages = max(1, -(-len(shown) // PAGE_SIZE))
     page = min(int(st.session_state.get("wall_page", 1)), pages)
     head_l, head_r = st.columns([3, 2], vertical_alignment="center")
-    head_l.markdown(f"### Cameras <span class='small'>· {len(shown)} of {len(raw_cams)}</span>", unsafe_allow_html=True)
+    head_l.markdown(f"<div class='small' style='padding-top:10px'>Showing {len(shown)} of {len(raw_cams)} cameras</div>",
+                    unsafe_allow_html=True)
     if pages > 1:
         with head_r:
             p1, p2, p3 = st.columns([1, 1.2, 1], vertical_alignment="center")
@@ -250,7 +251,7 @@ def _render_camera_cards_wall(raw_cams):
                     f'<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:6px;">'
                     f'<b style="font-size:14px;color:#18212B;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;">'
                     f'{ui.esc(c.name)}</b>'
-                    f'<span class="tag t-{"go" if is_on else "grey"}">● {c.status or "OFFLINE"}</span>'
+                    f'<span class="tag t-{"go" if is_on else "grey"}">{"Online" if is_on else "Offline"}</span>'
                     f'</div>',
                     unsafe_allow_html=True,
                 )
@@ -271,7 +272,7 @@ def _render_camera_cards_wall(raw_cams):
                     f'display:flex;justify-content:space-between;align-items:center;border-bottom:1px solid #232b36;'
                     f'font-family:monospace;font-size:11px;color:#f8f9fa;">'
                     f'<span>{signal}</span>'
-                    f'<span style="color:#adb5bd;">CAM-{c.id:02d} · {ui.esc(c.source_type or "")}</span>'
+                    f'<span style="color:#adb5bd;">CAM-{c.id:02d} {ui.esc(KIND_LABEL.get(c.source_type, c.source_type or ""))}</span>'
                     f'</div>',
                     unsafe_allow_html=True,
                 )
@@ -312,7 +313,7 @@ def _render_camera_cards_wall(raw_cams):
                     f'<b>{ui.esc(c.location or "—")}</b>'
                     f'</div>'
                     f'<div class="small" style="color:var(--muted);margin-bottom:10px;">'
-                    f'GPS: <code>{lat_val:.4f}° N, {lon_val:.4f}° E</code> · Bengaluru'
+                    f'{lat_val:.4f}° N, {lon_val:.4f}° E'
                     f'</div>',
                     unsafe_allow_html=True,
                 )
@@ -344,6 +345,7 @@ SOURCE_KINDS = {
     "Recorded video file": "VIDEO_FILE",
 }
 HANDHELD_KINDS = {"MOBILE", "WEBCAM"}
+KIND_LABEL = {"VIDEO_FILE": "VIDEO", "MOBILE": "PHONE", "RTSP": "RTSP", "WEBCAM": "WEBCAM"}
 HANDHELD_RULES = {"helmet": True, "triple_riding": True, "seatbelt": True, "red_light": False, "wrong_way": False,
                   "illegal_parking": False, "unsafe_movement": False}
 JUNCTIONS = {
