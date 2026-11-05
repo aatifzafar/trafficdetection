@@ -345,18 +345,36 @@ def render():
             with ui.panel():
                 if ev.get("image"):
                     with st.container(key="rq_evidence"):
-                        st.image(ev["image"], use_container_width=True)
+                        try:
+                            st.image(ev["image"], use_container_width=True)
+                        except Exception as e:
+                            ui.empty("Evidence image error", f"Could not render snapshot: {e}")
                 else:
                     ui.empty("No evidence image", "The snapshot for this record is not on this computer.")
 
-                orig_img = meta.get("original_image") or meta.get("upload")
-                if orig_img and Path(orig_img).exists():
-                    with st.expander("Original photo as uploaded", expanded=False):
-                        st.image(str(orig_img), caption="Original photograph as uploaded by citizen", use_container_width=True)
+                orig_file = meta.get("original_image") or meta.get("upload")
+                if orig_file and Path(orig_file).exists():
+                    p_orig = Path(orig_file)
+                    suffix = p_orig.suffix.lower()
+                    if suffix in {".jpg", ".jpeg", ".png", ".webp", ".bmp"}:
+                        with st.expander("Original photo as uploaded", expanded=False):
+                            try:
+                                st.image(str(p_orig), caption="Original photograph as uploaded by citizen", use_container_width=True)
+                            except Exception as img_err:
+                                st.caption(f"Could not render original photo: {img_err}")
+                    elif suffix in {".mp4", ".avi", ".mov", ".mkv"} and not ev.get("video"):
+                        with st.expander("Original video as uploaded", expanded=False):
+                            try:
+                                st.video(str(p_orig))
+                            except Exception as vid_err:
+                                st.caption(f"Could not render original video: {vid_err}")
 
                 if ev.get("video"):
                     with st.expander("Evidence Video Clip (Multi-frame Context)", expanded=False):
-                        st.video(ev["video"])
+                        try:
+                            st.video(ev["video"])
+                        except Exception as e:
+                            st.caption(f"Could not render video clip: {e}")
 
             # Plate Verification & Quick Correction Studio
             with ui.panel():
@@ -366,7 +384,10 @@ def render():
                 p_crop_col, p_badge_col, p_edit_col = st.columns([1, 1.7, 1.9], vertical_alignment="center", gap="small")
                 with p_crop_col:
                     if crop_img:
-                        st.image(crop_img, caption="Plate Bumper Crop", width=140)
+                        try:
+                            st.image(crop_img, caption="Plate Bumper Crop", width=140)
+                        except Exception:
+                            st.markdown('<div style="font-size:12px;color:var(--muted);background:#F1F4F8;padding:12px;border-radius:4px;text-align:center;">No plate crop</div>', unsafe_allow_html=True)
                     else:
                         st.markdown('<div style="font-size:12px;color:var(--muted);background:#F1F4F8;padding:12px;border-radius:4px;text-align:center;">No plate crop</div>', unsafe_allow_html=True)
                 with p_badge_col:
