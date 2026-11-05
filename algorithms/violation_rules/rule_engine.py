@@ -7,6 +7,8 @@ from algorithms.violation_rules.red_light_rule import RedLightViolationRule
 from algorithms.violation_rules.wrong_way_rule import WrongWayViolationRule
 from algorithms.violation_rules.seatbelt_rule import SeatbeltViolationRule
 from algorithms.violation_rules.mobile_phone_rule import MobilePhoneViolationRule
+from algorithms.violation_rules.illegal_parking_rule import IllegalParkingRule
+from algorithms.violation_rules.unsafe_movement_rule import UnsafeMovementRule
 
 logger = logging.getLogger(__name__)
 
@@ -87,6 +89,22 @@ class TrafficRuleEngine:
         if v_cfg.get("mobile_phone", True):
             self.rules["mobile_phone"] = MobilePhoneViolationRule(
                 temporal_window=w, min_positive_frames=min_p, cooldown_seconds=cd
+            )
+
+        if v_cfg.get("illegal_parking", True):
+            self.rules["illegal_parking"] = IllegalParkingRule(
+                zones=cams_cfg.get("default_no_parking_zones") or [],
+                max_stationary_seconds=float(v_cfg.get("parking_max_seconds", 60)),
+                move_tolerance_px=float(v_cfg.get("parking_move_tolerance_px", 25)),
+            )
+
+        if v_cfg.get("unsafe_movement", True):
+            self.rules["unsafe_movement"] = UnsafeMovementRule(
+                pixels_per_meter=cams_cfg.get("default_pixels_per_meter"),
+                speed_limit_kmph=cams_cfg.get("speed_limit_kmph") or v_cfg.get("speed_limit_kmph"),
+                weave_min_reversals=int(v_cfg.get("weave_min_direction_changes", 2)),
+                weave_amplitude_ratio=float(v_cfg.get("weave_amplitude_ratio", 0.35)),
+                temporal_window=w, min_positive_frames=min_p, cooldown_seconds=cd,
             )
 
         logger.info(f"Initialized Rule Engine with active rules: {list(self.rules.keys())}")

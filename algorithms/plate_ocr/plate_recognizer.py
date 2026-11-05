@@ -8,6 +8,8 @@ import numpy as np
 logger = logging.getLogger(__name__)
 
 
+_EASYOCR_READER = None
+
 class PlateRecognizer:
     """
     Automatic License Plate Recognition (ALPR) system with image preprocessing,
@@ -38,7 +40,11 @@ class PlateRecognizer:
                 import easyocr
                 logger.info("Initializing EasyOCR reader (English)...")
                 # gpu=False by default for reliable cpu execution or falls back gracefully
-                self.ocr_reader = easyocr.Reader(["en"], gpu=False)
+                # one reader per process: loading EasyOCR takes a few seconds and ~100 MB
+                global _EASYOCR_READER
+                if _EASYOCR_READER is None:
+                    _EASYOCR_READER = easyocr.Reader(["en"], gpu=False)
+                self.ocr_reader = _EASYOCR_READER
                 logger.info("EasyOCR reader initialized successfully.")
         except Exception as e:
             logger.warning(f"Could not initialize {self.engine_type}: {e}. Fallback OCR mode active.")

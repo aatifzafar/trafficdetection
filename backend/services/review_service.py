@@ -34,6 +34,8 @@ VIOLATION_LABELS = {
     "WRONG_WAY": "Wrong way",
     "NO_SEATBELT": "No seatbelt",
     "MOBILE_PHONE_WHILE_DRIVING": "Phone while driving",
+    "ILLEGAL_PARKING": "Illegal parking",
+    "UNSAFE_MOVEMENT": "Unsafe movement",
     "CITIZEN_REPORT": "Citizen report",
 }
 

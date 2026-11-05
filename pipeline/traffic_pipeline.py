@@ -63,6 +63,9 @@ class TrafficVisionPipeline:
             model_helmet_path=settings.MODEL_HELMET,
             model_plate_path=settings.MODEL_PLATE,
             confidence=float((base_cfg.get("detection") or {}).get("confidence", settings.CONFIDENCE)),
+            model_triple_path=(base_cfg.get("detection") or {}).get("model_triple", "models/triple_riding_best.pt"),
+            custom_imgsz=(base_cfg.get("detection") or {}).get("custom_imgsz"),
+            triple_every_n_frames=int((base_cfg.get("detection") or {}).get("triple_every_n_frames", 2)),
             iou=settings.IOU,
             device=settings.DEVICE,
         )
@@ -288,7 +291,11 @@ class TrafficVisionPipeline:
         # Duplicate merging: same vehicle (plate, or track when the plate is unknown) and same
         # violation within the dedup window of video time -> count it on the earlier record.
         video_t = frame_idx / (fps or 25.0)
-        for key in {self._dedup_key(viol_type, track_id, plate_number), self._dedup_key(viol_type, track_id, None)}:
+        # A pillion without a helmet is a separate offence from the driver on the same bike, so the
+        # pillion gets its own duplicate-merging key (the driver keeps the plain one).
+        seat = (viol.get("extra") or {}).get("seat_role")
+        dtype = f"{viol_type}:{seat}" if seat and seat != "driver" else viol_type
+        for key in {self._dedup_key(dtype, track_id, plate_number), self._dedup_key(dtype, track_id, None)}:
             prev = self._recent_events.get(key)
             if prev and video_t - prev[0] <= self.dedup_window_s:
                 self._merge_into(prev[1])
@@ -298,7 +305,7 @@ class TrafficVisionPipeline:
         self.violation_counts += 1
         self.event_counts[viol_type] = self.event_counts.get(viol_type, 0) + 1
         if not self.persist:
-            self._recent_events[self._dedup_key(viol_type, track_id, None)] = (video_t, -1)
+            self._recent_events[self._dedup_key(dtype, track_id, None)] = (video_t, -1)
             return True
         event_id = f"EVT-{datetime.datetime.utcnow().strftime('%Y%m%d%H%M%S')}-{uuid.uuid4().hex[:4].upper()}"
         viol.setdefault("extra", {})
@@ -387,7 +394,7 @@ class TrafficVisionPipeline:
                 )
                 db.add(al_row)
                 db.commit()
-                for key in {self._dedup_key(viol_type, track_id, plate_number), self._dedup_key(viol_type, track_id, None)}:
+                for key in {self._dedup_key(dtype, track_id, plate_number), self._dedup_key(dtype, track_id, None)}:
                     self._recent_events[key] = (video_t, new_id)
             except Exception as dbe:
                 db.rollback()
@@ -551,6 +558,14 @@ class TrafficVisionPipeline:
                 tail = (int(bx - ndx * 12), int(by - ndy * 12))
                 cv2.arrowedLine(frame, tail, tip, (0, 255, 0), 2, tipLength=0.45)
                 cv2.putText(frame, "LANE FLOW", (bx - 36, by + 34), cv2.FONT_HERSHEY_SIMPLEX, 0.36, (0, 255, 0), 1)
+
+        # Draw no-parking zones
+        park_rule = self.rule_engine.rules.get("illegal_parking")
+        for zi, z in enumerate(getattr(park_rule, "zones", []) or []):
+            pts = np.array(z, dtype=np.int32)
+            cv2.polylines(frame, [pts], True, (60, 60, 230), 2)
+            cv2.putText(frame, f"NO PARKING {zi + 1}", (int(pts[:, 0].min()) + 4, int(pts[:, 1].min()) + 18),
+                        cv2.FONT_HERSHEY_SIMPLEX, 0.5, (60, 60, 230), 2)
 
         # Map track_id to violation types in this frame
         track_violation_map = {}

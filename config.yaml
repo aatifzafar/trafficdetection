@@ -15,6 +15,8 @@ detection:
   confidence: 0.35
   iou: 0.45
   input_size: 640
+  custom_imgsz: 832          # helmet / plate model image size: 832 more accurate, 640 faster (Settings page)
+  triple_every_n_frames: 2  # triple-riding model runs every 2nd frame, boxes reused in between (speed)
 
 tracking:
   algorithm: "bytetrack" # "bytetrack" or "deepsort"
@@ -44,6 +46,13 @@ violations:
   seatbelt: true       # Custom YOLO26n seatbelt model (models/seatbelt_best.pt)
   seatbelt_confidence: 0.35
   mobile_phone: false  # phones are too small to see reliably from CCTV (future work)
+  illegal_parking: true   # needs a no-parking zone drawn on the Camera setup page
+  parking_max_seconds: 60 # a vehicle still inside a no-parking zone longer than this is flagged
+  parking_move_tolerance_px: 25
+  unsafe_movement: true   # weaving (zig-zag) from the tracked path; over-speeding only with pixels_per_meter
+  speed_limit_kmph: 40
+  weave_min_direction_changes: 2
+  weave_amplitude_ratio: 0.35  # side-to-side swing, in vehicle widths
 
 temporal_confirmation:
   window: 10
@@ -77,6 +86,8 @@ cameras:
   default_perspective: "AUTO" # "AUTO", "FRONT", "SIDE"
   seatbelt_min_crop_px: 90
   seatbelt_min_sharpness: 30.0
+  default_no_parking_zones: []   # polygons [[x, y], ...] in image pixels; set per camera on Camera setup
+  default_pixels_per_meter: null # set per camera to enable over-speed checks
 
 # Per-camera calibration. The dashboard's Camera setup page writes it to data/camera_calibration.yaml
 # (that file wins over this block). Keys are camera ids from the database. Each may contain:

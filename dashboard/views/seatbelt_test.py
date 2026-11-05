@@ -21,6 +21,8 @@ import cv2
 import numpy as np
 from PIL import Image
 
+from dashboard import ui
+
 PROJECT_ROOT = Path(__file__).resolve().parent.parent.parent
 
 MODEL_CANDIDATES = [
@@ -84,8 +86,8 @@ def annotate_image(image: Image.Image, boxes) -> Image.Image:
 
 
 def render():
-    st.markdown('<div class="brand" style="margin-bottom:4px">🚗 Seatbelt Violation AI Lab</div>', unsafe_allow_html=True)
-    st.caption("Experimental Computer Vision Enforcement Module · Two-stage Windshield Region Detection & ALPR Integration")
+    ui.page_header("Seatbelt Lab", "Experimental: test the seatbelt model on car-cabin images "
+                                   "(windshield crop, then detection; results always go to officer review)")
 
     # Metrics banner from evaluation report
     eval_metrics = get_evaluation_metrics()
@@ -97,19 +99,19 @@ def render():
         c2.metric("No-Seatbelt Precision", f"{val_ns.get('precision', 0.0)*100:.1f}%")
         c3.metric("No-Seatbelt Recall", f"{val_ns.get('recall', 0.0)*100:.1f}%")
         c4.metric("Status", "EXPERIMENTAL", delta="Human-in-the-loop review", delta_color="normal")
-        with st.expander("ℹ️ Architectural & CCTV Real-World Limitations", expanded=False):
+        with st.expander("Architectural & CCTV Real-World Limitations", expanded=False):
             st.info(eval_metrics.get("limitations", "Model trained on front windshield crops."))
 
     model = load_seatbelt_model()
     if model is None:
-        st.warning("⚠️ **Seatbelt detection model not configured.** Running in operational standby mode.\n\n"
+        st.warning("**Seatbelt detection model not configured.** Running in operational standby mode.\n\n"
                    "To activate real-time detection, place the trained weights file at `models/seatbelt_best.pt` "
                    "or run the training notebook `notebooks/train_seatbelt_colab.ipynb`.")
         return
 
     # Image source options
     st.markdown("### 1. Select Input Source")
-    tab_upload, tab_test_samples = st.tabs(["📤 Upload Images or ZIP Archive", "🧪 Curated Held-Out Test Set"])
+    tab_upload, tab_test_samples = st.tabs(["Upload Images or ZIP Archive", "Curated Held-Out Test Set"])
 
     images_to_process = []  # list of (filename, Image.Image or bytes)
 
@@ -144,7 +146,7 @@ def render():
         if test_samples_dir.exists():
             manifest_file = test_samples_dir / "manifest.json"
             sample_count = len(list(test_samples_dir.glob("*.jpg")))
-            st.write(f"📁 Local curated held-out test split has **{sample_count}** images ready.")
+            st.write(f"Local curated held-out test split has **{sample_count}** images ready.")
             if st.button("Load All Held-Out Test Samples", type="primary"):
                 for img_path in sorted(test_samples_dir.glob("*.jpg")):
                     try:
@@ -166,7 +168,7 @@ def render():
     st.write(f"**Loaded {len(images_to_process)} images.**")
     conf_thresh = st.slider("Confidence Threshold", min_value=0.10, max_value=0.90, value=0.35, step=0.05)
 
-    if st.button(f"🚀 Run Seatbelt AI Inference on {len(images_to_process)} Images", type="primary"):
+    if st.button(f"Run Seatbelt AI Inference on {len(images_to_process)} Images", type="primary"):
         with st.spinner("Processing through YOLO seatbelt detector with streaming batching..."):
             results_records = []
             annotated_images = []
@@ -285,7 +287,7 @@ def render():
         writer.writerows(filtered_records)
 
         st.download_button(
-            label="📥 Download Full Results as CSV",
+            label="Download Full Results as CSV",
             data=csv_buffer.getvalue(),
             file_name="seatbelt_detection_results.csv",
             mime="text/csv",
@@ -307,7 +309,7 @@ def render():
             cols = st.columns(4)
             for i, (fn, a_img, stt, cf) in enumerate(page_slice):
                 col = cols[i % 4]
-                tag = "🔴 VIOLATION" if stt == "NO SEATBELT" else ("🟢 COMPLIANT" if stt == "SEATBELT" else "⚪ NONE")
+                tag = "VIOLATION" if stt == "NO SEATBELT" else ("COMPLIANT" if stt == "SEATBELT" else "NONE")
                 col.image(a_img, caption=f"{fn}\n{tag} ({cf:.2f})", use_container_width=True)
         else:
             st.info("No preview images match the selected filter.")

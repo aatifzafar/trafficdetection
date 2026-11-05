@@ -28,7 +28,31 @@ RULE_NAMES = {
     "red_light": ("Red light jump", "Needs the stop line and the signal area"),
     "wrong_way": ("Wrong way", "Needs the lane direction"),
     "seatbelt": ("Seatbelt compliance", "Evaluates driver/passenger front/side cabin with YOLO26n"),
+    "illegal_parking": ("Illegal parking", "Needs a no-parking zone"),
+    "unsafe_movement": ("Unsafe movement", "Weaving from the tracked path; over-speeding needs pixels per metre"),
 }
+
+
+def _parse_zones(text: str, w: int, h: int):
+    """'x,y; x,y; x,y' per line -> list of polygons (pixels). Lines with fewer than 3 points are skipped."""
+    zones = []
+    for line in (text or "").splitlines():
+        pts = []
+        for part in line.replace("|", ";").split(";"):
+            bits = [b for b in part.replace(" ", "").split(",") if b]
+            if len(bits) == 2:
+                try:
+                    x, y = float(bits[0]), float(bits[1])
+                except ValueError:
+                    continue
+                pts.append([int(min(max(x, 0), w)), int(min(max(y, 0), h))])
+        if len(pts) >= 3:
+            zones.append(pts)
+    return zones
+
+
+def _zones_text(zones) -> str:
+    return "\n".join("; ".join(f"{int(p[0])},{int(p[1])}" for p in z) for z in (zones or []))
 
 
 def _is_placeholder(src) -> bool:
@@ -85,6 +109,14 @@ def _draw(frame, cal):
                             (255, 200, 90), 4, tipLength=0.25)
         cv2.putText(img, "Allowed direction", (int(w * 0.3) - 60, int(h * 0.55) - int(min(w, h) * 0.2)),
                     cv2.FONT_HERSHEY_SIMPLEX, 0.6, (255, 200, 90), 2)
+    for i, z in enumerate(cal.get("no_parking_zones") or []):
+        pts = np.array(z, dtype=np.int32)
+        overlay = img.copy()
+        cv2.fillPoly(overlay, [pts], (60, 60, 230))
+        img = cv2.addWeighted(overlay, 0.25, img, 0.75, 0)
+        cv2.polylines(img, [pts], True, (60, 60, 230), 3)
+        cv2.putText(img, f"No parking {i + 1}", (int(pts[:, 0].min()) + 6, int(pts[:, 1].min()) + 24),
+                    cv2.FONT_HERSHEY_SIMPLEX, 0.7, (60, 60, 230), 2)
     roi = cal.get("signal_roi")
     if roi:
         x1, y1, x2, y2 = [int(v) for v in roi]
@@ -106,24 +138,24 @@ def _add_camera_form():
     
     # 1-Click Location Helpers
     hlp_col1, hlp_col2 = st.columns(2)
-    if hlp_col1.button("📍 1-Click Detect GPS Location", help="Use current device network/GPS location", use_container_width=True):
+    if hlp_col1.button("1-Click Detect GPS Location", help="Use current device network/GPS location", use_container_width=True):
         loc = geo_service.get_current_location()
         if loc:
             st.session_state.add_cam_lat = round(loc["lat"], 4)
             st.session_state.add_cam_lon = round(loc["lon"], 4)
             st.session_state.add_cam_loc = loc["address"]
-            st.toast(f"📍 GPS Location detected: {loc['address']}", icon="📍")
+            st.toast(f"GPS Location detected: {loc['address']}")
             st.rerun()
 
     loc_candidate = st.session_state.get("add_cam_loc_query", "")
-    if hlp_col2.button("🔍 Auto-Geocode from Landmark", help="Find coordinates from landmark name", use_container_width=True):
+    if hlp_col2.button("Auto-Geocode from Landmark", help="Find coordinates from landmark name", use_container_width=True):
         if loc_candidate:
             res = geo_service.geocode_address(loc_candidate)
             if res:
                 st.session_state.add_cam_lat = round(res[0], 4)
                 st.session_state.add_cam_lon = round(res[1], 4)
                 st.session_state.add_cam_loc = res[2].split(",")[0] + ", Bengaluru"
-                st.toast(f"📍 Coordinates found for {loc_candidate}", icon="🔍")
+                st.toast(f"Coordinates found for {loc_candidate}")
                 st.rerun()
             else:
                 st.warning(f"Could not find coordinates for '{loc_candidate}'.")
@@ -161,7 +193,7 @@ def _add_camera_form():
                     )
                     db.add(new_cam)
                     db.commit()
-                st.toast(f"✅ Camera '{name}' registered with location ({lat}, {lon})!", icon="🎥")
+                st.toast(f"Camera '{name}' registered with location ({lat}, {lon})!")
                 st.session_state.show_add_cam = False
                 st.rerun()
 
@@ -176,14 +208,14 @@ def _render_all_cameras_map(raw_cams):
         online_cnt = sum(1 for c in raw_cams if c.status == "ONLINE")
         st.markdown(f"**{len(raw_cams)} Cameras** · <span style='color:#2E7D4F;'>● {online_cnt} Online</span> · {len(pts)} Plotted on Map", unsafe_allow_html=True)
     with bar_c2:
-        if st.button("📍 1-Click Get Current Location", type="primary", use_container_width=True):
+        if st.button("1-Click Get Current Location", type="primary", use_container_width=True):
             loc_data = geo_service.get_current_location()
             if loc_data:
                 st.session_state.user_loc = loc_data
-                st.toast(f"📍 Detected: {loc_data['address']} ({loc_data['lat']:.4f}, {loc_data['lon']:.4f})", icon="📍")
+                st.toast(f"Detected: {loc_data['address']} ({loc_data['lat']:.4f}, {loc_data['lon']:.4f})")
                 st.rerun()
     with bar_c3:
-        if st.button("➕ Add Camera", use_container_width=True):
+        if st.button("Add Camera", use_container_width=True):
             st.session_state.show_add_cam = not st.session_state.get("show_add_cam", False)
             st.rerun()
 
@@ -197,7 +229,7 @@ def _render_all_cameras_map(raw_cams):
         near_text = f" · Nearest CCTV Junction: <b>{nearest_cam.name}</b> ({dist_km} km away)" if nearest_cam else ""
         st.markdown(
             f'<div class="note-blue" style="margin-bottom:12px;">'
-            f'📍 <b>Your Current Location:</b> {user_loc["address"]} (Lat: {user_loc["lat"]:.4f}, Lon: {user_loc["lon"]:.4f}){near_text}'
+            f'<b>Your Current Location:</b> {user_loc["address"]} (Lat: {user_loc["lat"]:.4f}, Lon: {user_loc["lon"]:.4f}){near_text}'
             f'</div>',
             unsafe_allow_html=True
         )
@@ -246,7 +278,7 @@ def _render_all_cameras_map(raw_cams):
                     lat=[user_loc["lat"]],
                     lon=[user_loc["lon"]],
                     mode="markers+text",
-                    text=["📍 YOU ARE HERE"],
+                    text=["YOU ARE HERE"],
                     textposition="bottom center",
                     textfont=dict(size=12, color="#C62828", family="Barlow, sans-serif"),
                     hoverinfo="text",
@@ -292,7 +324,7 @@ def _render_all_cameras_map(raw_cams):
                 )
                 
                 ac1, ac2, ac3 = st.columns(3)
-                if ac1.button("📍 Auto-Locate", key=f"geofix_{c.id}", help="Fetch exact GPS from location text", use_container_width=True):
+                if ac1.button("Auto-Locate", key=f"geofix_{c.id}", help="Fetch exact GPS from location text", use_container_width=True):
                     res = geo_service.geocode_address(c.location)
                     if res:
                         with session() as db:
@@ -301,7 +333,7 @@ def _render_all_cameras_map(raw_cams):
                                 db_c.latitude = round(res[0], 4)
                                 db_c.longitude = round(res[1], 4)
                                 db_c.commit()
-                        st.toast(f"📍 Updated {c.name} to ({res[0]:.4f}, {res[1]:.4f})", icon="📍")
+                        st.toast(f"Updated {c.name} to ({res[0]:.4f}, {res[1]:.4f})")
                         st.rerun()
                     else:
                         st.warning("Could not auto-locate this landmark.")
@@ -310,14 +342,14 @@ def _render_all_cameras_map(raw_cams):
                 ac2.markdown(
                     f'<a href="{maps_url}" target="_blank" style="text-decoration:none;">'
                     f'<button style="width:100%;height:38px;background:#F1F4F8;border:1px solid #D8E0EA;border-radius:6px;'
-                    f'cursor:pointer;font-weight:600;font-size:12px;color:#1F4E8C;">🗺️ Maps</button></a>',
+                    f'cursor:pointer;font-weight:600;font-size:12px;color:#1F4E8C;">Maps</button></a>',
                     unsafe_allow_html=True
                 )
 
-                if ac3.button("⚙️ Calibrate", key=f"caljump_{c.id}", use_container_width=True):
+                if ac3.button("Calibrate", key=f"caljump_{c.id}", use_container_width=True):
                     st.session_state.cam_sel = c.id
-                    st.session_state.cam_tab = "📐 Calibration & Virtual Lines"
-                    st.session_state.cam_mode = "📹 Camera Calibration & Virtual Lines"
+                    st.session_state.cam_tab = "Calibration"
+                    st.session_state.cam_mode = "Camera Calibration & Virtual Lines"
                     st.rerun()
 
 
@@ -364,8 +396,8 @@ def _render_calibration_view(cams, status, cfg):
             else:
                 h, w = frame.shape[:2]
             with st.container(key="chips_tool"):
-                tool = st.radio("Tool", ["Stop line", "Lane direction", "Signal light area"], horizontal=True,
-                                label_visibility="collapsed")
+                tool = st.radio("Tool", ["Stop line", "Lane direction", "Signal light area", "No-parking zone",
+                                         "Speed"], horizontal=True, label_visibility="collapsed")
             sl = saved.get("stop_line") or {"x1": w * 0.12, "y1": h * 0.72, "x2": w * 0.88, "y2": h * 0.72}
             lane = saved.get("lane_direction") or [0, 1]
             roi = saved.get("signal_roi") or [w * 0.85, h * 0.05, w * 0.95, h * 0.30]
@@ -380,6 +412,35 @@ def _render_calibration_view(cams, status, cfg):
                                 0, 359, ang0)
                 lane = [round(math.cos(math.radians(ang)), 3), round(math.sin(math.radians(ang)), 3)]
                 st.session_state[f"lane_{cid}"] = lane
+            elif tool == "No-parking zone":
+                tk = f"npz_txt_{cid}"
+                if tk not in st.session_state:
+                    st.session_state[tk] = _zones_text(st.session_state.get(f"npz_{cid}", saved.get("no_parking_zones") or []))
+                zt = st.text_area(
+                    "One zone per line, as corner points x,y separated by ';' (at least 3 points)",
+                    key=tk,
+                    placeholder=f"e.g. {int(w * 0.05)},{int(h * 0.6)}; {int(w * 0.3)},{int(h * 0.6)}; "
+                                f"{int(w * 0.3)},{int(h * 0.95)}; {int(w * 0.05)},{int(h * 0.95)}",
+                    height=90)
+                st.session_state[f"npz_{cid}"] = _parse_zones(zt, w, h)
+                st.markdown('<div class="small">A vehicle whose wheels stay inside a zone without moving for longer '
+                            'than the allowed time (config.yaml: parking_max_seconds) is flagged.</div>',
+                            unsafe_allow_html=True)
+            elif tool == "Speed":
+                c = st.columns(2)
+                for k, v in ((f"ppm_in_{cid}", float(st.session_state.get(f"ppm_{cid}", saved.get("pixels_per_meter") or 0.0))),
+                             (f"lim_in_{cid}", int(st.session_state.get(f"lim_{cid}", saved.get("speed_limit_kmph") or 40)))):
+                    if k not in st.session_state:
+                        st.session_state[k] = v
+                ppm = c[0].number_input("Pixels per metre on the road (0 = off)", 0.0, 500.0, key=f"ppm_in_{cid}",
+                                        step=1.0, help="Measure a known length on the road in the image, e.g. a 3 m "
+                                                       "lane marking that is 60 px long gives 20 px per metre.")
+                lim = c[1].number_input("Speed limit (km/h)", 10, 120, key=f"lim_in_{cid}")
+                st.session_state[f"ppm_{cid}"] = ppm
+                st.session_state[f"lim_{cid}"] = lim
+                st.markdown('<div class="small">Without pixels per metre only weaving (zig-zag) is checked. The speed '
+                            'is approximate: one scale for the whole image ignores perspective.</div>',
+                            unsafe_allow_html=True)
             else:
                 c = st.columns(4)
                 roi = [c[0].number_input("Left", 0, w, int(roi[0])), c[1].number_input("Top", 0, h, int(roi[1])),
@@ -387,7 +448,10 @@ def _render_calibration_view(cams, status, cfg):
                 st.session_state[f"roi_{cid}"] = roi
             cal_now = {"stop_line": st.session_state.get(f"sl_{cid}", saved.get("stop_line") or sl),
                        "lane_direction": st.session_state.get(f"lane_{cid}", saved.get("lane_direction") or lane),
-                       "signal_roi": st.session_state.get(f"roi_{cid}", saved.get("signal_roi") or roi)}
+                       "signal_roi": st.session_state.get(f"roi_{cid}", saved.get("signal_roi") or roi),
+                       "no_parking_zones": st.session_state.get(f"npz_{cid}", saved.get("no_parking_zones") or []),
+                       "pixels_per_meter": st.session_state.get(f"ppm_{cid}", saved.get("pixels_per_meter") or 0) or None,
+                       "speed_limit_kmph": st.session_state.get(f"lim_{cid}", saved.get("speed_limit_kmph") or 40)}
             if frame is not None:
                 st.image(_draw(frame, cal_now), use_container_width=True)
                 if st.button("Take a fresh frame"):
@@ -399,9 +463,10 @@ def _render_calibration_view(cams, status, cfg):
             test = st.session_state.get(f"test_{cid}")
             if test:
                 st.markdown(f'<div class="lbl" style="margin-top:10px">Last test · {test["when"]} · {test["frames"]} frames '
-                            f'(nothing was saved)</div><div style="display:grid;grid-template-columns:repeat(5,1fr);gap:8px;margin-top:6px">'
+                            f'(nothing was saved)</div><div style="display:grid;grid-template-columns:repeat(4,1fr);gap:8px;margin-top:6px">'
                             f'{ui.stat(test["vehicles"], "vehicles tracked")}{ui.stat(test["red"], "red light jumps")}'
                             f'{ui.stat(test["wrong"], "wrong-way movements")}{ui.stat(test.get("seatbelt", 0), "no seatbelt")}'
+                            f'{ui.stat(test.get("parking", 0), "illegal parking")}{ui.stat(test.get("unsafe", 0), "unsafe movement")}'
                             f'{ui.stat(test["fps"], "frames/sec")}</div>',
                             unsafe_allow_html=True)
 
@@ -471,6 +536,8 @@ def _run_test(cid, src, cal, rules):
         "when": time.strftime("%H:%M"), "frames": n, "vehicles": len(pipe.total_vehicles_seen),
         "red": pipe.event_counts.get("RED_LIGHT_JUMP", 0), "wrong": pipe.event_counts.get("WRONG_WAY", 0),
         "seatbelt": pipe.event_counts.get("NO_SEATBELT", 0),
+        "parking": pipe.event_counts.get("ILLEGAL_PARKING", 0),
+        "unsafe": pipe.event_counts.get("UNSAFE_MOVEMENT", 0),
         "fps": f"{n / max(0.001, time.time() - t0):.1f}",
     }
     st.rerun()
@@ -487,13 +554,13 @@ def render():
         cams_tuple = [(c.id, c.name, c.location, c.source_type, c.source_url) for c in raw_cams]
 
     # Mode Selector
-    options = ["🗺️ All Camera Locations (Map & GPS)", "📹 Camera Calibration & Virtual Lines"]
+    options = ["All Camera Locations (Map & GPS)", "Camera Calibration & Virtual Lines"]
     current_mode = st.session_state.get("cam_mode", options[0])
     mode = st.radio("Mode", options, index=options.index(current_mode) if current_mode in options else 0,
                     horizontal=True, label_visibility="collapsed")
     st.session_state.cam_mode = mode
 
-    if mode == "🗺️ All Camera Locations (Map & GPS)":
+    if mode == "All Camera Locations (Map & GPS)":
         _render_all_cameras_map(raw_cams)
     else:
         _render_calibration_view(cams_tuple, status, cfg)

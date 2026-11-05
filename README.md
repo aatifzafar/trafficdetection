@@ -31,8 +31,8 @@ This project delivers a **production-structured, real-time AI computer vision sy
 | 2 | **Triple Riding** | `TRIPLE_RIDING` | Direct YOLO detector (`MORE_THAN_TWO_PERSONS`, **92.3% mAP50**) + spatial cluster fallback | **Completed** |
 | 3 | **Signal Jumping (Red Light)** | `RED_LIGHT_JUMP` | Dynamic virtual stop-line vector intersection during RED signal state | **Completed** |
 | 4 | **Wrong-Way Driving** | `WRONG_WAY` | Trajectory centroid vector angle deviation ($> 120^\circ$) against permitted lane | **Completed** |
-| 5 | **Illegal Parking / Prohibited Stopping** | `ILLEGAL_PARKING` | Stationary vehicle dwell-time tracking inside restricted polygon zones ($> T$ sec) | **TODO (Next)** |
-| 6 | **Unsafe Vehicle Movement / Rash Driving** | `UNSAFE_MOVEMENT` | Pixel-to-meter velocity estimation ($v > v_{limit}$) & erratic zigzag trajectory tracking | **TODO (Next)** |
+| 5 | **Illegal Parking / Prohibited Stopping** | `ILLEGAL_PARKING` | Stationary vehicle dwell-time tracking inside no-parking polygon zones drawn per camera ($> T$ sec, default 60 s) — `illegal_parking_rule.py` | **Completed** (needs a zone per camera) |
+| 6 | **Unsafe Vehicle Movement / Rash Driving** | `UNSAFE_MOVEMENT` | Pixel-to-meter velocity estimation ($v > v_{limit}$) & weaving (zig-zag) trajectory detection — `unsafe_movement_rule.py` | **Completed** (speed needs pixels-per-metre per camera) |
 | 7 | **Driving Without Seatbelt** | `NO_SEATBELT` | Two-stage windshield ROI crop + fine-tuned YOLO detector + multi-frame voting | **Completed (Experimental)** |
 | + | **Driver Mobile Phone Usage** | `MOBILE_PHONE_WHILE_DRIVING` | Direct visual detection using fine-tuned `USING_MOBILE` class (**71.5% mAP50**) | **Completed** |
 

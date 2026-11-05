@@ -9,6 +9,8 @@ Consolidates all camera operations into a single master hub:
 
 import datetime
 import os
+
+import cv2
 import pandas as pd
 import plotly.graph_objects as go
 import streamlit as st
@@ -21,11 +23,25 @@ from dashboard.data import session
 from dashboard.views import cameras_setup, live
 
 TABS = [
-    "🎥 All Cameras (Video Wall)",
-    "📹 Live AI Stream Feeds",
-    "📐 Virtual Lines & Calibration",
-    "➕ Register Camera",
+    "Video wall",
+    "Live detection",
+    "Calibration",
+    "Register camera",
 ]
+WALL, LIVE, CALIB, REGISTER = TABS
+PAGE_SIZE = 9
+
+
+@st.cache_data(show_spinner=False, ttl=300, max_entries=64)
+def _thumb(src, max_w: int = 480):
+    """Small snapshot for the wall (cached 5 min); full-size frames make the page slow to send."""
+    frame = cameras_setup._grab_frame(src)
+    if frame is None:
+        return None
+    h, w = frame.shape[:2]
+    if w > max_w:
+        frame = cv2.resize(frame, (max_w, int(h * max_w / w)), interpolation=cv2.INTER_AREA)
+    return cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
 
 
 def _render_camera_cards_wall(raw_cams):
@@ -36,43 +52,37 @@ def _render_camera_cards_wall(raw_cams):
       - CCTV HUD overlay with timestamp & Bengaluru camera ID
       - Verified Bengaluru physical junction & GPS coordinates
       - 1-click action buttons:
-          * 📍 Location (Shows verified Bengaluru physical location, coordinates & Google Maps)
-          * ⚙️ Setup (Configures stop-line, allowed lane direction, and rules)
-          * ▶️ AI Live (Runs realtime AI detection on this camera)
+          * Location (Shows verified Bengaluru physical location, coordinates & Google Maps)
+          * Setup (Configures stop-line, allowed lane direction, and rules)
+          * Run AI (Runs realtime AI detection on this camera)
     """
     if not raw_cams:
-        ui.empty("No cameras registered", "Add a camera using the '➕ Register Camera' tab.")
+        ui.empty("No cameras registered", "Add a camera using the 'Register Camera' tab.")
         return
 
     cams_by_id = {c.id: c for c in raw_cams}
     now_str = datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S")
 
-    # Top KPI Banner & Mode Toolbar
+    # Summary + toolbar
     online_count = sum(1 for c in raw_cams if c.status == "ONLINE")
-    kpi_c1, kpi_c2, kpi_c3, kpi_c4 = st.columns([2.2, 1.4, 1.0, 1.0], vertical_alignment="center")
-    with kpi_c1:
-        st.markdown(
-            f'<div style="font-size:14px;color:var(--muted);">'
-            f'<b>Bengaluru CCTV Network:</b> {len(raw_cams)} Registered Junction Cameras · '
-            f'<span style="color:#2E7D4F;font-weight:700;">● {online_count} Online Feeds</span>'
-            f'</div>',
-            unsafe_allow_html=True,
-        )
-    with kpi_c2:
-        feed_mode = st.radio(
-            "Feed Mode",
-            ["▶️ Live Video Motion", "📸 Frame Snapshots"],
-            horizontal=True,
-            label_visibility="collapsed",
-            key="cctv_feed_mode",
-        )
-    with kpi_c3:
-        if st.button("🗺️ City Map", use_container_width=True):
+    st.markdown(
+        '<div style="display:grid;grid-template-columns:repeat(4,1fr);gap:10px;margin-bottom:10px">'
+        + ui.stat(len(raw_cams), "cameras registered")
+        + ui.stat(online_count, "online")
+        + ui.stat(len(raw_cams) - online_count, "offline", amber=len(raw_cams) > online_count)
+        + ui.stat(len({(c.location or "").split(",")[0] for c in raw_cams}), "junctions")
+        + "</div>", unsafe_allow_html=True)
+    with st.container(key="wall_toolbar"):
+        t1, t2, t3, t4, t5 = st.columns([2.2, 1.2, 1.5, 0.9, 0.9], vertical_alignment="bottom")
+        query = t1.text_input("Search", placeholder="Camera name or junction", key="wall_q")
+        status_f = t2.selectbox("Status", ["All", "Online", "Offline"], key="wall_status")
+        feed_mode = t3.radio("Preview", ["Snapshots", "Live video"], horizontal=True, key="cctv_feed_mode",
+                             help="Live video plays every camera on this page at once; snapshots load much faster.")
+        if t4.button("City map", use_container_width=True):
             st.session_state.show_city_map = not st.session_state.get("show_city_map", False)
             st.rerun()
-    with kpi_c4:
-        if st.button("➕ Add Camera", use_container_width=True):
-            st.session_state.cam_tab = "➕ Register Camera"
+        if t5.button("Add camera", use_container_width=True):
+            st.session_state.cam_tab = REGISTER
             st.rerun()
 
     # =========================================================================
@@ -87,12 +97,12 @@ def _render_camera_cards_wall(raw_cams):
             with header_col:
                 st.markdown(
                     f'<div style="font-size:18px;font-weight:700;color:#1F4E8C;">'
-                    f'📍 Original Physical Location: {ui.esc(dossier["name"])}'
+                    f'Original Physical Location: {ui.esc(dossier["name"])}'
                     f'</div>',
                     unsafe_allow_html=True,
                 )
             with close_col:
-                if st.button("✖ Close Location", key="close_loc_dossier", use_container_width=True):
+                if st.button("Close Location", key="close_loc_dossier", use_container_width=True):
                     st.session_state.active_location_cam = None
                     st.rerun()
 
@@ -122,13 +132,13 @@ def _render_camera_cards_wall(raw_cams):
                     st.markdown(
                         f'<a href="{dossier["google_maps_url"]}" target="_blank" style="text-decoration:none;">'
                         f'<button style="width:100%;height:38px;background:#1F4E8C;color:#fff;border:none;'
-                        f'border-radius:6px;font-weight:600;font-size:12px;cursor:pointer;">🗺️ Open in Google Maps</button></a>',
+                        f'border-radius:6px;font-weight:600;font-size:12px;cursor:pointer;">Open in Google Maps</button></a>',
                         unsafe_allow_html=True,
                     )
                 with act2:
-                    if st.button("⚙️ Configure Setup for this Cam", key=f"doss_setup_{target_cam.id}", use_container_width=True):
+                    if st.button("Configure Setup for this Cam", key=f"doss_setup_{target_cam.id}", use_container_width=True):
                         st.session_state.cam_sel = target_cam.id
-                        st.session_state.cam_tab = "📐 Virtual Lines & Calibration"
+                        st.session_state.cam_tab = CALIB
                         st.rerun()
 
             with doss_right:
@@ -202,11 +212,32 @@ def _render_camera_cards_wall(raw_cams):
     # =========================================================================
     # 3. VIDEO WALL GRID OF CARDS (EACH WITH SMALL SCREEN + BUTTONS)
     # =========================================================================
-    st.markdown("### All Cameras — Live Video Wall")
+    q = (query or "").strip().lower()
+    shown = [c for c in raw_cams
+             if (not q or q in (c.name or "").lower() or q in (c.location or "").lower())
+             and (status_f == "All" or (c.status == "ONLINE") == (status_f == "Online"))]
+    pages = max(1, -(-len(shown) // PAGE_SIZE))
+    page = min(int(st.session_state.get("wall_page", 1)), pages)
+    head_l, head_r = st.columns([3, 2], vertical_alignment="center")
+    head_l.markdown(f"### Cameras <span class='small'>· {len(shown)} of {len(raw_cams)}</span>", unsafe_allow_html=True)
+    if pages > 1:
+        with head_r:
+            p1, p2, p3 = st.columns([1, 1.2, 1], vertical_alignment="center")
+            if p1.button("Previous", disabled=page <= 1, use_container_width=True, key="wall_prev"):
+                st.session_state.wall_page = page - 1
+                st.rerun()
+            p2.markdown(f"<div class='small' style='text-align:center'>Page {page} of {pages}</div>",
+                        unsafe_allow_html=True)
+            if p3.button("Next", disabled=page >= pages, use_container_width=True, key="wall_next"):
+                st.session_state.wall_page = page + 1
+                st.rerun()
+    if not shown:
+        ui.empty("No cameras match", "Change the search or status filter.")
+        return
     num_cols = 3
     cols = st.columns(num_cols, gap="medium")
 
-    for idx, c in enumerate(raw_cams):
+    for idx, c in enumerate(shown[(page - 1) * PAGE_SIZE: page * PAGE_SIZE]):
         col = cols[idx % num_cols]
         with col:
             with ui.panel():
@@ -227,30 +258,35 @@ def _render_camera_cards_wall(raw_cams):
                 src = cameras_setup._source(c)
                 is_video_file = c.source_type == "VIDEO_FILE" and isinstance(src, str) and os.path.exists(src)
 
+                play_video = feed_mode == "Live video" and is_video_file
+                thumb = None if play_video else _thumb(src)
+                has_feed = play_video or thumb is not None
+                signal = ('<span style="color:#e03131;font-weight:700;">● LIVE</span>' if play_video else
+                          '<span style="color:#51cf66;font-weight:700;">● SNAPSHOT</span>' if has_feed else
+                          '<span style="color:#adb5bd;font-weight:700;">○ NO SIGNAL</span>')
                 # CCTV Screen Header Bezel
                 st.markdown(
                     f'<div style="background:#11161d;padding:4px 8px;border-top-left-radius:6px;border-top-right-radius:6px;'
                     f'display:flex;justify-content:space-between;align-items:center;border-bottom:1px solid #232b36;'
                     f'font-family:monospace;font-size:11px;color:#f8f9fa;">'
-                    f'<span><span style="color:#e03131;font-weight:700;">● REC</span> LIVE CCTV</span>'
-                    f'<span style="color:#adb5bd;">CAM-{c.id:02d} · 25 FPS</span>'
+                    f'<span>{signal}</span>'
+                    f'<span style="color:#adb5bd;">CAM-{c.id:02d} · {ui.esc(c.source_type or "")}</span>'
                     f'</div>',
                     unsafe_allow_html=True,
                 )
 
-                if feed_mode == "▶️ Live Video Motion" and is_video_file:
-                    # Autoplaying looping genuine CCTV video footage
+                if play_video:
                     st.video(src, format="video/mp4", loop=True, autoplay=True, muted=True)
                 else:
-                    # Snapshot fallback
-                    frame = cameras_setup._grab_frame(src)
-                    if frame is not None:
-                        st.image(frame, channels="BGR", use_container_width=True)
+                    if thumb is not None:
+                        st.image(thumb, use_container_width=True, output_format="JPEG")
                     else:
                         st.markdown(
                             f'<div style="background:#2A3038;height:160px;display:grid;'
                             f'place-items:center;color:#AAB4BE;font-size:13px;text-align:center;">'
-                            f'<div><b>📺 CCTV Live Standby</b><br><span style="font-size:11px;">Feed Loading...</span></div>'
+                            f'<div><b>No signal</b><br><span style="font-size:11px;">'
+                            f'{"Stream address is a placeholder" if cameras_setup._is_placeholder(src) else "Source could not be opened"}'
+                            f'</span></div>'
                             f'</div>',
                             unsafe_allow_html=True,
                         )
@@ -272,7 +308,7 @@ def _render_camera_cards_wall(raw_cams):
                 # Physical Location Details in Bengaluru
                 st.markdown(
                     f'<div class="small" style="color:var(--muted);margin-bottom:2px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;">'
-                    f'📍 <b>{ui.esc(c.location or "—")}</b>'
+                    f'<b>{ui.esc(c.location or "—")}</b>'
                     f'</div>'
                     f'<div class="small" style="color:var(--muted);margin-bottom:10px;">'
                     f'GPS: <code>{lat_val:.4f}° N, {lon_val:.4f}° E</code> · Bengaluru'
@@ -282,21 +318,21 @@ def _render_camera_cards_wall(raw_cams):
 
                 # BUTTON TOOLBAR: Location, Setup, Live
                 btn1, btn2, btn3 = st.columns(3)
-                # Button 1: 📍 Location
-                if btn1.button("📍 Location", key=f"wall_loc_{c.id}", help="View verified Bengaluru location & Google Maps", use_container_width=True):
+                # Button 1: Location
+                if btn1.button("Location", key=f"wall_loc_{c.id}", help="View verified Bengaluru location & Google Maps", use_container_width=True):
                     st.session_state.active_location_cam = c.id
                     st.rerun()
 
-                # Button 2: ⚙️ Setup
-                if btn2.button("⚙️ Setup", key=f"wall_setup_{c.id}", help="Configure virtual stop-line & lane direction", use_container_width=True):
+                # Button 2: Setup
+                if btn2.button("Setup", key=f"wall_setup_{c.id}", help="Configure virtual stop-line & lane direction", use_container_width=True):
                     st.session_state.cam_sel = c.id
-                    st.session_state.cam_tab = "📐 Virtual Lines & Calibration"
+                    st.session_state.cam_tab = CALIB
                     st.rerun()
 
-                # Button 3: ▶️ Live
-                if btn3.button("▶️ AI Live", key=f"wall_live_{c.id}", help="Run realtime AI detection pipeline on this feed", use_container_width=True):
+                # Button 3: run AI detection
+                if btn3.button("Run AI", key=f"wall_live_{c.id}", help="Run realtime AI detection pipeline on this feed", use_container_width=True):
                     st.session_state.live_sel = [c.id]
-                    st.session_state.cam_tab = "📹 Live AI Stream Feeds"
+                    st.session_state.cam_tab = LIVE
                     st.rerun()
 
 
@@ -345,29 +381,29 @@ def _render_add_camera():
                     )
                     db.add(new_cam)
                     db.commit()
-                st.toast(f"✅ Camera '{name}' registered in Bengaluru ({lat:.4f}, {lon:.4f})!", icon="🎥")
-                st.session_state.cam_tab = "🎥 All Cameras (Video Wall)"
+                st.toast(f"Camera '{name}' registered in Bengaluru ({lat:.4f}, {lon:.4f})!")
+                st.session_state.cam_tab = WALL
                 st.rerun()
 
 
 def render():
-    ui.page_header(
-        "Camera Command Center",
-        "Bengaluru CCTV camera wall, small-screen video previews, 1-click location lookup, and virtual stop-line setup",
-    )
+    ui.page_header("Cameras", "Every junction camera, live AI detection, calibration and registration")
 
     current_tab = st.session_state.get("cam_tab", TABS[0])
     if current_tab not in TABS:
         current_tab = TABS[0]
+    # buttons elsewhere set cam_tab; carry it into the radio before the radio is drawn
+    if st.session_state.get("cam_tab_radio") != current_tab:
+        st.session_state["cam_tab_radio"] = current_tab
 
     with st.container(key="cam_nav_chips"):
         selected_tab = st.radio(
             "Camera View",
             TABS,
-            index=TABS.index(current_tab),
             horizontal=True,
             label_visibility="collapsed",
             key="cam_tab_radio",
+            on_change=lambda: st.session_state.update(cam_tab=st.session_state.cam_tab_radio),
         )
     st.session_state.cam_tab = selected_tab
 
@@ -378,12 +414,12 @@ def render():
         cams_tuple = [(c.id, c.name, c.location, c.source_type, c.source_url) for c in raw_cams]
 
     # Sub-views
-    if selected_tab == "🎥 All Cameras (Video Wall)":
+    if selected_tab == WALL:
         _render_camera_cards_wall(raw_cams)
-    elif selected_tab == "📹 Live AI Stream Feeds":
+    elif selected_tab == LIVE:
         live.render()
-    elif selected_tab == "📐 Virtual Lines & Calibration":
+    elif selected_tab == CALIB:
         cameras_setup._render_calibration_view(cams_tuple, status, cfg)
-    elif selected_tab == "➕ Register Camera":
+    elif selected_tab == REGISTER:
         with ui.panel():
             _render_add_camera()

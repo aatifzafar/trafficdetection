@@ -660,10 +660,11 @@ def process_upload(upload: Path, info: Dict[str, Any],
 
         cfg = load_config_fresh()
         viol = dict(cfg.get("violations") or {})
+        # Hand-held phone video moves, so fixed zone rules like red_light, parking, unsafe_movement are disabled
         if claimed_viol in {"WRONG_WAY", "AUTO_DETECT", None}:
-            viol.update({"red_light": False, "wrong_way": True})
+            viol.update({"red_light": False, "wrong_way": True, "illegal_parking": False, "unsafe_movement": False})
         else:
-            viol.update({"red_light": False, "wrong_way": False})  # need a calibrated camera
+            viol.update({"red_light": False, "wrong_way": False, "illegal_parking": False, "unsafe_movement": False})
         cfg["violations"] = viol
         pipe = TrafficVisionPipeline(config=cfg, camera_id=info.get("camera_id"),
                                      location=info.get("location") or "Citizen upload", source="CITIZEN")

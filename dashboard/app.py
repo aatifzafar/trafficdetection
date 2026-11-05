@@ -26,7 +26,13 @@ from dashboard.views import (analytics, cameras, citizen_upload, evaluation, mod
 
 st.set_page_config(page_title="TrafficAI · Officer console", page_icon="🚦", layout="wide",
                    initial_sidebar_state="collapsed")
-ensure_schema()
+@st.cache_resource(show_spinner=False)
+def _schema_ready() -> bool:
+    ensure_schema()  # creates/migrates tables; only needed once per server start, not on every click
+    return True
+
+
+_schema_ready()
 ui.inject_css()
 
 PAGES = {
@@ -56,10 +62,10 @@ def pending_count() -> int:
 def top_bar() -> str:
     cur_nav = st.session_state.get("nav")
     if cur_nav == "Live cameras":
-        st.session_state.cam_tab = "📹 Live Camera Feeds"
+        st.session_state.cam_tab = "Live detection"
         st.session_state.nav = "Cameras"
     elif cur_nav == "Camera setup":
-        st.session_state.cam_tab = "📐 Calibration & Virtual Lines"
+        st.session_state.cam_tab = "Calibration"
         st.session_state.nav = "Cameras"
     elif cur_nav not in PAGES:
         st.session_state.nav = "Overview"
@@ -69,9 +75,13 @@ def top_bar() -> str:
         with c1:
             badge = (f'<span style="margin-left:14px;background:#FFF4D6;color:#8A5D00;font-size:13px;font-weight:700;'
                      f'padding:3px 10px;border-radius:12px">{n} waiting for review</span>' if n else "")
+            n_models = sum(1 for m in (settings.MODEL_TRAFFIC, settings.MODEL_CUSTOM, "models/triple_riding_best.pt",
+                                       getattr(settings, "MODEL_SEATBELT", "models/seatbelt_best.pt")) if Path(m).exists())
             st.markdown('<div class="brand"><span class="lamp"><i style="background:#FF5A4F"></i>'
                         '<i style="background:#4A3B12"></i><i style="background:#1E4D2E"></i></span>TrafficAI'
-                        f'{badge}</div>', unsafe_allow_html=True)
+                        '<span class="sub">Traffic violation monitoring · Bengaluru</span>'
+                        f'{badge}<span class="sys"><i></i>{n_models} AI models ready · {ui.esc(settings.DEVICE.upper())}</span>'
+                        '</div>', unsafe_allow_html=True)
         with c3:
             st.selectbox("On duty", OFFICERS, key="officer")
         # fixed labels + key: the selected tab never changes when the waiting count changes

@@ -16,7 +16,7 @@ import yaml
 
 from backend.config.settings import CONFIG_PATH
 
-RULE_KEYS = ["helmet", "triple_riding", "red_light", "wrong_way", "seatbelt"]
+RULE_KEYS = ["helmet", "triple_riding", "red_light", "wrong_way", "seatbelt", "illegal_parking", "unsafe_movement"]
 CALIBRATION_PATH = Path("data/camera_calibration.yaml")
 APP_SETTINGS_PATH = Path("data/app_settings.yaml")   # written by the dashboard's Settings page
 TRACKERS = ["bytetrack", "deepsort"]
@@ -50,6 +50,8 @@ def _apply_app_settings(cfg: Dict[str, Any]) -> None:
     app = load_app_settings()
     if "confidence" in app:
         cfg.setdefault("detection", {})["confidence"] = float(app["confidence"])
+    if app.get("custom_imgsz") in (640, 832, "640", "832"):
+        cfg.setdefault("detection", {})["custom_imgsz"] = int(app["custom_imgsz"])
     if app.get("model_traffic"):
         cfg.setdefault("detection", {})["model_traffic"] = app["model_traffic"]
     if app.get("tracker") in TRACKERS:
@@ -114,6 +116,12 @@ def config_for_camera(base_cfg: Dict[str, Any], camera_id: Optional[int]) -> Dic
         cams["default_perspective"] = cal["perspective"]
     if cal.get("seatbelt_perspective"):
         cams["seatbelt_perspective"] = cal["seatbelt_perspective"]
+    if cal.get("no_parking_zones"):
+        cams["default_no_parking_zones"] = cal["no_parking_zones"]
+    if cal.get("pixels_per_meter"):
+        cams["default_pixels_per_meter"] = cal["pixels_per_meter"]
+    if cal.get("speed_limit_kmph"):
+        cams["speed_limit_kmph"] = cal["speed_limit_kmph"]
     cfg["cameras"] = cams
     rules = cal.get("rules") or {}
     if rules:

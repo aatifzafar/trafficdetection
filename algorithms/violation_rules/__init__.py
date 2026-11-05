@@ -5,6 +5,8 @@ from algorithms.violation_rules.red_light_rule import RedLightViolationRule
 from algorithms.violation_rules.wrong_way_rule import WrongWayViolationRule
 from algorithms.violation_rules.seatbelt_rule import SeatbeltViolationRule
 from algorithms.violation_rules.mobile_phone_rule import MobilePhoneViolationRule
+from algorithms.violation_rules.illegal_parking_rule import IllegalParkingRule
+from algorithms.violation_rules.unsafe_movement_rule import UnsafeMovementRule
 from algorithms.violation_rules.rule_engine import TrafficRuleEngine
 
 __all__ = [
@@ -15,5 +17,7 @@ __all__ = [
     "WrongWayViolationRule",
     "SeatbeltViolationRule",
     "MobilePhoneViolationRule",
+    "IllegalParkingRule",
+    "UnsafeMovementRule",
     "TrafficRuleEngine",
 ]

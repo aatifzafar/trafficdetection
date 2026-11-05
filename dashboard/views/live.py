@@ -23,6 +23,14 @@ WEBCAM_TIP = ("Phone demo: hold your phone with the violation video or photo fac
 ALL = "All locations"
 
 
+
+def _for_screen(frame_bgr, max_w: int = 960):
+    """Frame shown in the browser: at most 960 px wide, RGB. Sending full 1080p frames every update is slow."""
+    h, w = frame_bgr.shape[:2]
+    if w > max_w:
+        frame_bgr = cv2.resize(frame_bgr, (max_w, int(h * max_w / w)), interpolation=cv2.INTER_AREA)
+    return cv2.cvtColor(frame_bgr, cv2.COLOR_BGR2RGB)
+
 def _matches(cams, loc, q, only):
     return [c for c in cams
             if (loc == ALL or c["location"] == loc)
@@ -198,12 +206,12 @@ def render():
                 gmaps = f"https://www.google.com/maps?q={lat_c},{lon_c}"
                 img.markdown(f'<div style="background:#2A3038;border-radius:8px;height:240px;display:grid;place-items:center;'
                              f'color:#E6EAEE;text-align:center"><div><b class="cond" style="font-size:20px">{ui.esc(cam["name"])}</b>'
-                             f'<br><span style="color:#AAB4BE">📍 {ui.esc(cam["location"])}</span>'
+                             f'<br><span style="color:#AAB4BE">{ui.esc(cam["location"])}</span>'
                              f'<br><span style="color:{dot}">● {ui.esc(cam["status"].title())}</span>'
                              f'<span style="color:#AAB4BE"> · {ui.esc(cam["type"])}</span>'
                              f'<br><a href="{gmaps}" target="_blank" style="text-decoration:none;">'
                              f'<span style="display:inline-block;margin-top:6px;background:#1F4E8C;color:#fff;padding:3px 8px;border-radius:4px;font-size:11px;font-weight:600;">'
-                             f'📍 1-Click Location ({lat_c:.4f}° N, {lon_c:.4f}° E)</span></a>'
+                             f'1-Click Location ({lat_c:.4f}° N, {lon_c:.4f}° E)</span></a>'
                              f'</div></div>',
                              unsafe_allow_html=True)
 
@@ -259,7 +267,7 @@ def render():
                 annotated, new = s["pipe"].process_frame(frame, s["n"], fps=s["fps"], signal_state=s["sig"])
                 s["t"] = s.get("t", 0.0) + time.perf_counter() - t0
                 s["new"] += len(new)
-                slots[s["i"]][0].image(cv2.cvtColor(annotated, cv2.COLOR_BGR2RGB), use_container_width=True)
+                slots[s["i"]][0].image(_for_screen(annotated), use_container_width=True, output_format="JPEG")
                 slots[s["i"]][1].markdown(
                     f'<div class="small"><b style="color:#18212B">{ui.esc(s["label"])}</b> · frame {s["n"]} · '
                     f'{s["pipe"].current_fps:.1f} fps · {s["pipe"].avg_latency_ms:.0f} ms latency · '
@@ -278,7 +286,7 @@ def render():
                         f'<div class="small">{ui.esc(s["label"])} · frame {s["n"]} · track ID {ui.esc(v.get("track_id"))} · '
                         f'saved with evidence, waiting in the review queue</div></div>'
                         f'<span class="tag t-stop">RECORDED</span></div>', unsafe_allow_html=True)
-                    evidence_slot.image(cv2.cvtColor(annotated, cv2.COLOR_BGR2RGB), use_container_width=True,
+                    evidence_slot.image(_for_screen(annotated), use_container_width=True, output_format="JPEG",
                                         caption=f"{vlabel} · track ID {v.get('track_id')} · {s['label']} · frame {s['n']}")
                     st.toast(f"New: {rs.violation_label(new[-1].get('violation_type'))} on {s['label']}. "
                              "It is waiting in the review queue.")

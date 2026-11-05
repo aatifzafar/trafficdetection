@@ -67,15 +67,25 @@ class DetectionResult:
         }
 
 
+# Classes used from the triple-riding model. Its helmet classes are NOT used: on helmets it is much weaker
+# than traffic_custom.pt (no-helmet precision 0.649 / recall 0.557 against 0.796 / 0.769), and mixing its
+# boxes in adds false no-helmet alerts.
 TRIPLE_MODEL_KEEP = {
     "MORE_THAN_TWO_PERSONS",
-    "USING_MOBILE",
-    "WITHOUT_HELMET",
-    "WITH_HELMET",
-    "NO_HELMET",
-    "HELMET",
     "TRIPLE_RIDING",
+    "USING_MOBILE",
 }
+
+# Model files are loaded once per process and shared, so starting a camera or a new run does not reload
+# every .pt file (and the dashboard does not keep several copies of each model in memory).
+_MODEL_CACHE: Dict[str, Any] = {}
+
+
+def load_yolo(path: str):
+    key = str(Path(path).resolve()) if Path(path).exists() else str(path)
+    if key not in _MODEL_CACHE:
+        _MODEL_CACHE[key] = YOLO(path)
+    return _MODEL_CACHE[key]
 
 
 class TrafficDetector:
@@ -94,6 +104,8 @@ class TrafficDetector:
         model_helmet_path: Optional[str] = "models/helmet_model.pt",
         model_plate_path: Optional[str] = "models/plate_model.pt",
         model_triple_path: Optional[str] = "models/triple_riding_best.pt",
+        custom_imgsz: Optional[int] = None,
+        triple_every_n_frames: int = 2,
         confidence: float = 0.35,
         iou: float = 0.45,
         device: str = "auto",
@@ -110,7 +122,7 @@ class TrafficDetector:
         logger.info(f"Initializing TrafficDetector on device: {self.device}")
 
         # Primary Traffic Model (Vehicles, Riders, Traffic Lights, Cell Phones)
-        self.model_traffic = YOLO(model_traffic_path)
+        self.model_traffic = load_yolo(model_traffic_path)
 
         # Unified Custom Model check (classes: 0 helmet, 1 no_helmet, 2 number_plate)
         self.model_custom = None
@@ -118,11 +130,12 @@ class TrafficDetector:
         self.custom_imgsz = None
         if model_custom_path and Path(model_custom_path).exists():
             try:
-                self.model_custom = YOLO(model_custom_path)
+                self.model_custom = load_yolo(model_custom_path)
                 self.has_custom_model = True
-                self.custom_imgsz = getattr(self.model_custom, "overrides", {}).get("imgsz", None)
-                if not self.custom_imgsz or "832" in str(model_custom_path) or "custom" in str(model_custom_path):
-                    self.custom_imgsz = 832
+                # image size for the helmet / plate model: config detection.custom_imgsz (Settings page).
+                # 832 is about 1.4 F1 points more accurate than 640 but about 1.6x slower on a CPU.
+                self.custom_imgsz = int(custom_imgsz) if custom_imgsz else (
+                    getattr(self.model_custom, "overrides", {}).get("imgsz", None) or 640)
                 logger.info(f"Loaded unified custom model from {model_custom_path} (trained imgsz: {self.custom_imgsz})")
             except Exception as e:
                 logger.warning(f"Failed to load custom model from {model_custom_path}: {e}")
@@ -135,11 +148,15 @@ class TrafficDetector:
         self.triple_imgsz = None
         if model_triple_path and Path(model_triple_path).exists():
             try:
-                self.model_triple = YOLO(model_triple_path)
+                self.model_triple = load_yolo(model_triple_path)
                 self.triple_imgsz = getattr(self.model_triple, "overrides", {}).get("imgsz", None)
                 logger.info(f"Loaded triple-riding model from {model_triple_path}")
             except Exception as e:
                 logger.warning(f"Failed to load triple-riding model from {model_triple_path}: {e}")
+
+        self.triple_every_n_frames = max(1, int(triple_every_n_frames or 1))
+        self._frame_no = 0
+        self._triple_cache = None
 
         # Legacy custom models support / aliases for backwards compatibility
         self.helmet_model = self.model_custom
@@ -230,8 +247,15 @@ class TrafficDetector:
             except Exception as e:
                 logger.warning(f"Custom model inference error: {e}")
 
-        # Triple-riding model: keep only the classes the main custom model does not have
+        # Triple-riding model: keep only the classes the main custom model does not have.
+        # It runs every N-th frame and its boxes are reused in between (a bike moves a few pixels per frame),
+        # which roughly halves its cost; the triple-riding rule still sees a box on every frame.
         if self.model_triple is not None:
+            self._frame_no += 1
+            if self._triple_cache is not None and (self._frame_no % self.triple_every_n_frames) != 0:
+                detections.extend(self._triple_cache)
+                return detections
+            n_before = len(detections)
             try:
                 kwargs = {"conf": self.confidence, "iou": self.iou, "device": self.device, "verbose": False}
                 if self.triple_imgsz:
@@ -256,6 +280,7 @@ class TrafficDetector:
                         )
             except Exception as e:
                 logger.warning(f"Triple-riding model inference error: {e}")
+            self._triple_cache = detections[n_before:]
 
         return detections
 

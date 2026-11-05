@@ -49,6 +49,12 @@ def render():
                                           "The Evaluation page compares both on the same video.")
             conf = st.slider("Confidence threshold", 0.10, 0.90, round(conf0, 2), 0.05,
                              help="Lower finds more objects but adds false boxes. 0.35 is the project default.")
+            imgsz0 = int((cfg.get("detection") or {}).get("custom_imgsz") or 640)
+            imgsz = st.radio("Helmet / plate model image size", [640, 832], index=1 if imgsz0 == 832 else 0,
+                             horizontal=True,
+                             format_func=lambda v: {640: "640 px · faster (F1 0.877)",
+                                                    832: "832 px · more accurate (F1 0.891), ~1.6x slower"}[v],
+                             help="Validation F1 on 803 unseen images. 832 also reads small, distant plates better.")
             trk = st.selectbox("Tracking algorithm", TRACKERS, index=TRACKERS.index(trk0) if trk0 in TRACKERS else 0,
                                format_func=lambda t: {"bytetrack": "ByteTrack (recommended)", "deepsort": "DeepSORT"}[t])
             st.markdown(f'<dl class="kv"><dt>Plate reader</dt><dd>{ui.esc(settings.OCR_ENGINE)}</dd>'
@@ -71,6 +77,7 @@ def render():
             y2 = c2.number_input("Stop line Y2", value=float(sl0["y2"]), step=10.0)
         if st.button("Save settings", type="primary", use_container_width=True):
             save_app_settings({"model_traffic": mr.path(model_key), "confidence": conf, "tracker": trk,
+                               "custom_imgsz": int(imgsz),
                                "default_stop_line": {"x1": x1, "y1": y1, "x2": x2, "y2": y2}})
             st.success("Saved to data/app_settings.yaml. New runs on Live cameras use these settings.")
         if saved:

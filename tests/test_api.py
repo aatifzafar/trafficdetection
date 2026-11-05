@@ -50,6 +50,14 @@ def test_create_and_query_camera():
     assert res_start.status_code == 200
     assert res_start.json()["status"] == "ONLINE"
 
+    # remove the test camera again, so test runs do not fill the real camera list
+    db = SessionLocal()
+    try:
+        db.query(CameraSource).filter(CameraSource.id == cam_id).delete()
+        db.commit()
+    finally:
+        db.close()
+
 
 def test_analytics_summary():
     response = client.get("/api/analytics/summary")

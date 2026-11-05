@@ -39,6 +39,18 @@ PENAL_CODE_SCHEDULE = {
         "fine_inr": 1000,
         "points": 1,
     },
+    "ILLEGAL_PARKING": {
+        "section": "Section 122 read with Section 177, Motor Vehicles Act",
+        "description": "Leaving a vehicle standing in a no-parking zone, causing obstruction",
+        "fine_inr": 500,
+        "points": 1,
+    },
+    "UNSAFE_MOVEMENT": {
+        "section": "Section 184 (dangerous driving) / Section 183 (over-speeding), Motor Vehicles Act",
+        "description": "Weaving between lanes or driving above the speed limit in a manner dangerous to the public",
+        "fine_inr": 1000,
+        "points": 3,
+    },
     "MOBILE_PHONE_WHILE_DRIVING": {
         "section": "Section 184, Motor Vehicles Act",
         "description": "Use of handheld mobile communication device while operating motor vehicle",

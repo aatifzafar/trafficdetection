@@ -18,12 +18,14 @@ TYPES = [
     "NO_HELMET",
     "RED_LIGHT_JUMP",
     "WRONG_WAY",
+    "ILLEGAL_PARKING",
+    "UNSAFE_MOVEMENT",
     "NO_SEATBELT",
     "MOBILE_PHONE_WHILE_DRIVING",
     "CITIZEN_REPORT",
 ]
 TYPE_LABEL = {
-    "AUTO_DETECT": "✨ Auto-detect with AI (Recommended)",
+    "AUTO_DETECT": "Auto-detect with AI (Recommended)",
     **{t: rs.violation_label(t) for t in TYPES if t not in {"AUTO_DETECT", "CITIZEN_REPORT"}},
     "CITIZEN_REPORT": "Something else / not sure",
 }
@@ -98,7 +100,7 @@ def render():
                 if len(res.get("records", [])) > 1:
                     st.markdown(
                         f'<div style="background:#FFF3E0;border-left:4px solid #FF9800;padding:10px 14px;border-radius:4px;margin-bottom:12px;">'
-                        f'<b style="color:#E65100;font-size:14px;">⚠️ Multiple Simultaneous Violations Detected ({len(res["records"])})</b><br>'
+                        f'<b style="color:#E65100;font-size:14px;">Multiple Simultaneous Violations Detected ({len(res["records"])})</b><br>'
                         f'<span style="font-size:12px;color:#333;">The AI vision model detected multiple concurrent traffic offenses in this evidence. Each violation has been recorded separately with its specific penalty for officer review.</span>'
                         f'</div>',
                         unsafe_allow_html=True,
@@ -126,18 +128,18 @@ def render():
                     elif r["auto"]:
                         pct = f"{r['confidence'] * 100:.1f}%"
                         if r["type"] == "NO_SEATBELT":
-                            how_html = f'<b style="color:#C62828">🚨 AI Detected: NO_SEATBELT ({pct} conf{sharp_str})</b>'
+                            how_html = f'<b style="color:#C62828">AI Detected: NO_SEATBELT ({pct} conf{sharp_str})</b>'
                         else:
-                            how_html = f'<b style="color:#2E7D32">🤖 Detected by AI: {ui.esc(r["type"])} ({pct} conf)</b>'
+                            how_html = f'<b style="color:#2E7D32">Detected by AI: {ui.esc(r["type"])} ({pct} conf)</b>'
                         if r.get("claimed") and r["claimed"] not in {None, "AUTO_DETECT", r["type"]}:
                             claimed_lbl = TYPE_LABEL.get(r["claimed"], r["claimed"])
-                            how_html += f'<br><span style="color:#E65100;font-size:12px">⚡ Auto-classified by AI (you reported: <i>{ui.esc(claimed_lbl)}</i>)</span>'
+                            how_html += f'<br><span style="color:#E65100;font-size:12px">Auto-classified by AI (you reported: <i>{ui.esc(claimed_lbl)}</i>)</span>'
                     elif status_cat == "SEATBELT_COMPLIANT":
-                        how_html = f'<b style="color:#2E7D32">✅ AI Verified: Compliant (Seatbelt Fastened)</b>'
+                        how_html = f'<b style="color:#2E7D32">AI Verified: Compliant (Seatbelt Fastened)</b>'
                         if note:
                             how_html += f'<br><span style="color:#555;font-size:12px">{ui.esc(note)}{sharp_str}</span>'
                     elif status_cat == "INCONCLUSIVE":
-                        how_html = f'<b style="color:#D97706">⚠️ AI Analysis: Inconclusive</b>'
+                        how_html = f'<b style="color:#D97706">AI Analysis: Inconclusive</b>'
                         if note:
                             how_html += f'<br><span style="color:#555;font-size:12px">{ui.esc(note)}{sharp_str}</span>'
                     else:

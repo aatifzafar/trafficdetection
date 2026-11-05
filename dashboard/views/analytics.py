@@ -201,13 +201,28 @@ def _evaluation():
         except Exception as e:
             st.error(f"Could not read {p}: {e}")
             return
-        per = data.get("per_class") or data.get("classes") or {}
-        if isinstance(per, dict) and per:
-            st.dataframe(pd.DataFrame(per).T, use_container_width=True)
+        def _f1(m):
+            p_, r_ = m.get("precision"), m.get("recall")
+            return 2 * p_ * r_ / (p_ + r_) if isinstance(p_, (int, float)) and isinstance(r_, (int, float)) and p_ + r_ else None
+
         overall = data.get("overall") or {}
         if overall:
-            st.markdown(" · ".join(f"**{k}** {v:.3f}" if isinstance(v, (int, float)) else f"**{k}** {v}"
-                                   for k, v in overall.items()))
+            tiles = [(overall.get("precision"), "precision"), (overall.get("recall"), "recall"),
+                     (_f1(overall), "F1 score"), (overall.get("mAP50"), "mAP@0.50")]
+            st.markdown('<div style="display:grid;grid-template-columns:repeat(4,1fr);gap:10px;margin-bottom:10px">'
+                        + "".join(ui.stat(f"{v * 100:.1f}%" if isinstance(v, (int, float)) else "—", lbl)
+                                  for v, lbl in tiles) + "</div>", unsafe_allow_html=True)
+        per = data.get("per_class") or data.get("classes") or {}
+        if isinstance(per, dict) and per:
+            rows = [{"Class": str(c).replace("_", " ").capitalize(), "Precision": m.get("precision"),
+                     "Recall": m.get("recall"), "F1": _f1(m), "mAP@0.50": m.get("mAP50"),
+                     "mAP@0.50:0.95": m.get("mAP50_95")} for c, m in per.items() if isinstance(m, dict)]
+            st.dataframe(pd.DataFrame(rows), hide_index=True, use_container_width=True,
+                         column_config={k: st.column_config.NumberColumn(format="%.3f")
+                                        for k in ("Precision", "Recall", "F1", "mAP@0.50", "mAP@0.50:0.95")})
+        st.markdown(f'<div class="small">Helmet / no-helmet / number-plate model ({ui.esc(data.get("model", ""))}), '
+                    'validation set of 803 unseen images. Full comparison on the Evaluation page.</div>',
+                    unsafe_allow_html=True)
         bench = Path("data/benchmark_results.json")
         if bench.exists():
             b = json.loads(bench.read_text(encoding="utf-8"))

@@ -16,6 +16,8 @@ TITLES = {
     "RED_LIGHT_JUMP": "Signal Disobedience (Crossed Virtual Stop Line on Red)",
     "WRONG_WAY": "One-Way Corridor Violation (Moving Against Allowed Vector)",
     "NO_SEATBELT": "Driver/Passenger Without Seatbelt (Cabin Compliance)",
+    "ILLEGAL_PARKING": "Illegal Parking (Stationary in No-Parking Zone)",
+    "UNSAFE_MOVEMENT": "Unsafe Vehicle Movement (Weaving / Over-speeding)",
 }
 FILTERS = {
     "All": None,
@@ -24,6 +26,8 @@ FILTERS = {
     "Triple riding": "TRIPLE_RIDING",
     "Red light": "RED_LIGHT_JUMP",
     "Wrong way": "WRONG_WAY",
+    "Illegal parking": "ILLEGAL_PARKING",
+    "Unsafe movement": "UNSAFE_MOVEMENT",
     "Citizen reports": "CITIZEN",
 }
 
@@ -91,6 +95,18 @@ def _why(viol, meta) -> list:
             unver_reason = extra.get("unverified_reason") or "Insufficient temporal motion evidence in static photograph."
             lines.append(f"Reason: {unver_reason}")
             lines.append("Legal Notice: A static photograph cannot establish motion vectors. Human officer verification required before issuing notice.")
+    elif t == "ILLEGAL_PARKING":
+        if extra.get("stationary_seconds") is not None:
+            lines.append(f"Dwell Time: {extra.get('vehicle_class', 'Vehicle')} stood still for {extra['stationary_seconds']} s "
+                         f"inside no-parking zone {int(extra.get('zone_index', 0)) + 1} (allowed {extra.get('allowed_seconds')} s)")
+    elif t == "UNSAFE_MOVEMENT":
+        reasons = extra.get("reasons") or []
+        if "WEAVING" in reasons:
+            lines.append(f"Trajectory: weaving, {extra.get('direction_changes')} side-to-side direction changes "
+                         f"(swing {extra.get('lateral_swing_widths')} vehicle widths) in >= 6 of 10 frames")
+        if "OVER_SPEED" in reasons and extra.get("speed_kmph") is not None:
+            lines.append(f"Speed: about {extra['speed_kmph']} km/h against a limit of {extra.get('speed_limit_kmph')} km/h "
+                         "(from the camera's pixels-per-metre calibration)")
     elif t == "NO_SEATBELT":
         persp = extra.get("perspective", "AUTO")
         sharp = extra.get("sharpness")
@@ -115,7 +131,7 @@ def _why(viol, meta) -> list:
     concurrent = [c for c in extra.get("concurrent_violations", []) if c != viol.violation_type]
     if concurrent:
         c_names = ", ".join(TITLES.get(c, c) for c in concurrent)
-        lines.append(f"⚠️ Concurrent Offense: Vehicle was simultaneously flagged for {c_names}")
+        lines.append(f"Concurrent Offense: Vehicle was simultaneously flagged for {c_names}")
 
     if viol.source == "CITIZEN":
         if extra.get("auto_classified") and extra.get("claimed_violation") and extra.get("claimed_violation") not in {None, "AUTO_DETECT", viol.violation_type}:
@@ -137,13 +153,13 @@ def _do(action, viol_id, next_id=None, **kw):
         try:
             if action == "approve":
                 rs.approve(db, viol_id, officer)
-                st.toast("✅ Violation Approved. Prototype violation notice generated.", icon="🚦")
+                st.toast("Violation Approved. Prototype violation notice generated.")
             elif action == "reject":
                 rs.reject(db, viol_id, officer, kw.get("reason", ""))
-                st.toast("❌ Incident Rejected. Saved with reason for model retraining.", icon="📁")
+                st.toast("Incident Rejected. Saved with reason for model retraining.")
             elif action == "plate":
                 rs.correct_plate(db, viol_id, kw.get("plate", ""), officer)
-                st.toast(f"✏️ Plate corrected to '{kw.get('plate', '').strip().upper()}'.", icon="🔍")
+                st.toast(f"Plate corrected to '{kw.get('plate', '').strip().upper()}'.")
         except ValueError as e:
             st.session_state.review_error = str(e)
             return
@@ -179,9 +195,9 @@ def render():
                     counts[name] += 1
 
         # Page Header & Filter Chips
-        head_col, chip_col = st.columns([1.1, 2], vertical_alignment="center")
-        with head_col:
-            ui.page_header("Review Queue", f"{len(pending)} pending cases · human-in-the-loop review")
+        ui.page_header("Review queue", f"{len(pending)} cases waiting · every detection is checked by an officer "
+                                       "before any notice is issued")
+        chip_col = st.container()
 
         if not pending:
             with ui.panel():
@@ -248,7 +264,7 @@ def render():
                             else:
                                 st.markdown('<div style="width:100%;height:45px;background:#E2E6EB;border-radius:4px;"></div>', unsafe_allow_html=True)
                         with meta_c:
-                            active_pill = '<span class="rq-active-badge">▶ ACTIVE</span> ' if is_active else ''
+                            active_pill = '<span class="rq-active-badge">ACTIVE</span> ' if is_active else ''
                             st.markdown(
                                 f'<div style="display:flex;align-items:center;gap:4px;">{active_pill}{ui.violation_tag(v.violation_type, v.source)}</div>'
                                 f'<div style="margin:4px 0 2px;">{ui.plate_html(v.plate_number, small=True)}</div>'
@@ -325,8 +341,8 @@ def render():
                     )
                 with h_nav:
                     nav_prev, nav_next = st.columns(2)
-                    nav_prev.button("◀ Previous", disabled=(prev_id is None), use_container_width=True, on_click=_go, args=(prev_id,))
-                    nav_next.button("Next ▶", disabled=(next_id is None), use_container_width=True, on_click=_go, args=(next_id,))
+                    nav_prev.button("← Prev", disabled=(prev_id is None), use_container_width=True, on_click=_go, args=(prev_id,))
+                    nav_next.button("Next →", disabled=(next_id is None), use_container_width=True, on_click=_go, args=(next_id,))
 
             # Evidence Image & Video View
             with ui.panel():
@@ -342,27 +358,27 @@ def render():
                         st.image(str(orig_img), caption="Original photograph as uploaded by citizen", use_container_width=True)
 
                 if ev.get("video"):
-                    with st.expander("📹 Evidence Video Clip (Multi-frame Context)", expanded=False):
+                    with st.expander("🎥 Evidence Video Clip (Multi-frame Context)", expanded=False):
                         st.video(ev["video"], key=f"rev_video_{viol.id}")
 
             # Plate Verification & Quick Correction Studio
             with ui.panel():
                 crop_img = plate_crop(ev.get("image"))
-                st.markdown('<div class="plate-label">License Plate Verification & OCR Audit</div>', unsafe_allow_html=True)
+                st.markdown('<div class="plate-label">Number plate check</div>', unsafe_allow_html=True)
 
-                p_crop_col, p_badge_col, p_edit_col = st.columns([1.2, 1.4, 2], vertical_alignment="center", gap="medium")
+                p_crop_col, p_badge_col, p_edit_col = st.columns([1, 1.7, 1.9], vertical_alignment="center", gap="small")
                 with p_crop_col:
                     if crop_img:
                         st.image(crop_img, caption="Plate Bumper Crop", width=140)
                     else:
-                        st.markdown('<div style="font-size:12px;color:var(--muted);background:#F1F4F8;padding:12px;border-radius:4px;text-align:center;">Crop Not Available</div>', unsafe_allow_html=True)
+                        st.markdown('<div style="font-size:12px;color:var(--muted);background:#F1F4F8;padding:12px;border-radius:4px;text-align:center;">No plate crop</div>', unsafe_allow_html=True)
                 with p_badge_col:
                     # built outside the f-string: a backslash inside an f-string breaks Python 3.11 and older
                     verified = ("<div class='small' style='color:#1F4E8C;font-weight:600;margin-top:3px;'>"
-                                "✓ Officer Verified</div>") if viol.plate_edited else ""
+                                "Officer Verified</div>") if viol.plate_edited else ""
                     st.markdown(
                         f'<div style="text-align:center;">'
-                        f'{ui.plate_html(viol.plate_number, large=True)}'
+                        f'{ui.plate_html(viol.plate_number)}'
                         f'{verified}'
                         f'</div>',
                         unsafe_allow_html=True
@@ -380,7 +396,7 @@ def render():
 
             # AI Diagnostic Trace
             with ui.panel():
-                st.markdown("**AI Detection Logic & Diagnostic Trace**")
+                st.markdown("**Why the AI flagged this**")
                 diag_items = "".join(f"<li>{ui.esc(x)}</li>" for x in _why(viol, meta))
                 st.markdown(f'<ul class="why" style="margin:4px 0 6px;">{diag_items}</ul>', unsafe_allow_html=True)
 
@@ -400,7 +416,7 @@ def render():
             with ui.panel():
                 st.markdown(
                     f'<div class="penalty-card">'
-                    f'<div class="sec">⚖️ {ui.esc(penalty_info["section"])}</div>'
+                    f'<div class="sec">{ui.esc(penalty_info["section"])}</div>'
                     f'<div class="desc">{ui.esc(penalty_info["description"])}</div>'
                     f'<div class="fine-row">'
                     f'<span class="fine">₹{penalty_info["fine_inr"]:,}</span>'
@@ -415,7 +431,7 @@ def render():
 
                 # 1. APPROVE ACTION (HIGH CONTRAST PRIMARY BUTTON)
                 st.markdown('<div class="st-key-btn_approve">', unsafe_allow_html=True)
-                if st.button("✅ Approve & Issue Notice", key=f"btn_app_{viol.id}", use_container_width=True, type="primary"):
+                if st.button("Approve & Issue Notice", key=f"btn_app_{viol.id}", use_container_width=True, type="primary"):
                     _do("approve", viol.id, next_id=nxt)
                 st.markdown('</div>', unsafe_allow_html=True)
                 st.caption("Creates an official prototype notice and registers fine in Parivahan queue.")
@@ -431,7 +447,7 @@ def render():
                     label_visibility="collapsed"
                 )
                 st.markdown('<div class="st-key-btn_reject">', unsafe_allow_html=True)
-                if st.button("❌ Reject Detection", key=f"btn_rej_{viol.id}", use_container_width=True):
+                if st.button("Reject Detection", key=f"btn_rej_{viol.id}", use_container_width=True):
                     _do("reject", viol.id, next_id=nxt, reason=rej_reason)
                 st.markdown('</div>', unsafe_allow_html=True)
                 st.caption("Rejections are saved with reason as training data for future model tuning.")
@@ -448,7 +464,7 @@ def render():
                         .all()
                     )
                     if history:
-                        st.markdown(f'<div class="note-amber" style="margin-bottom:8px;">⚠️ <b>Repeat Offender</b>: {len(history)} prior incidents recorded.</div>', unsafe_allow_html=True)
+                        st.markdown(f'<div class="note-amber" style="margin-bottom:8px;"><b>Repeat Offender</b>: {len(history)} prior incidents recorded.</div>', unsafe_allow_html=True)
                         h_rows = "".join(
                             f"<tr>"
                             f"<td>{ui.fmt_time(h.timestamp)}</td>"
@@ -465,7 +481,7 @@ def render():
                             unsafe_allow_html=True
                         )
                     else:
-                        st.markdown('<div class="note-blue">✓ <b>Clean Record</b>: No prior violations logged for this plate.</div>', unsafe_allow_html=True)
+                        st.markdown('<div class="note-blue"><b>Clean Record</b>: No prior violations logged for this plate.</div>', unsafe_allow_html=True)
                 else:
                     st.markdown('<div class="small">Number plate is unidentified. Use the plate edit box above to assign the registration number.</div>', unsafe_allow_html=True)
 

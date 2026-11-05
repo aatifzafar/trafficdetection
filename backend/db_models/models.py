@@ -77,7 +77,7 @@ class Violation(Base):
 
     id = Column(Integer, primary_key=True, index=True)
     event_id = Column(String(64), unique=True, index=True, nullable=False)
-    violation_type = Column(String(50), index=True, nullable=False)  # NO_HELMET, TRIPLE_RIDING, RED_LIGHT_JUMP, WRONG_WAY, NO_SEATBELT, MOBILE_PHONE
+    violation_type = Column(String(50), index=True, nullable=False)  # NO_HELMET, TRIPLE_RIDING, RED_LIGHT_JUMP, WRONG_WAY, NO_SEATBELT, MOBILE_PHONE, ILLEGAL_PARKING, UNSAFE_MOVEMENT
     track_id = Column(Integer, nullable=True)
     vehicle_id = Column(Integer, ForeignKey("vehicles.id"), nullable=True)
     plate_number = Column(String(30), index=True, nullable=True)

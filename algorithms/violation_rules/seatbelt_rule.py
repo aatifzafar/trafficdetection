@@ -68,6 +68,8 @@ class SeatbeltViolationRule(BaseViolationRule):
         self.is_configured = False
         self.seatbelt_model = None
         self.resolved_model_path: Optional[Path] = None
+        self.predict_every_n_frames = 2
+        self._pred_cache: Dict[Any, Tuple[int, bool, float]] = {}
 
         self._load_model()
 
@@ -81,8 +83,8 @@ class SeatbeltViolationRule(BaseViolationRule):
         for p in candidate_paths:
             if p.exists() and p.is_file():
                 try:
-                    from ultralytics import YOLO
-                    self.seatbelt_model = YOLO(str(p))
+                    from algorithms.detection.detector import load_yolo
+                    self.seatbelt_model = load_yolo(str(p))
                     self.is_configured = True
                     self.resolved_model_path = p
                     logger.info(f"Loaded active seatbelt violation model from: {p}")
@@ -251,10 +253,16 @@ class SeatbeltViolationRule(BaseViolationRule):
                 continue
 
             # Stage 3: Run custom seatbelt detector on windshield crop
+            # (every 2nd frame per vehicle; the previous answer is reused in between to halve the cost)
             try:
-                preds = self.seatbelt_model(crop, verbose=False, conf=self.confidence_threshold)
-                is_no_seatbelt = False
-                highest_conf = 0.0
+                cached = self._pred_cache.get(vehicle.track_id)
+                if cached is not None and frame_idx - cached[0] < self.predict_every_n_frames:
+                    preds = None
+                    is_no_seatbelt, highest_conf = cached[1], cached[2]
+                else:
+                    preds = self.seatbelt_model(crop, verbose=False, conf=self.confidence_threshold)
+                    is_no_seatbelt = False
+                    highest_conf = 0.0
 
                 if preds and len(preds[0].boxes) > 0:
                     for box in preds[0].boxes:
@@ -267,6 +275,9 @@ class SeatbeltViolationRule(BaseViolationRule):
                             is_no_seatbelt = True
                             if conf > highest_conf:
                                 highest_conf = conf
+
+                if preds is not None:
+                    self._pred_cache[vehicle.track_id] = (frame_idx, is_no_seatbelt, highest_conf)
 
                 # Stage 4: Multi-frame temporal voting & video cooldown
                 track_id = vehicle.track_id

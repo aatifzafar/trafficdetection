@@ -119,7 +119,7 @@ def _bar(title, values, fmt, lower_better):
     if lower_better is not None and len(set(vals)) > 1:
         best = (min if lower_better else max)(vals)
     fig = go.Figure(go.Bar(x=[mr.short(k) for k in keys], y=vals, marker_color=PALETTE[:len(keys)],
-                           text=[fmt.format(v) + (" ✓" if v == best else "") for v in vals],
+                           text=[fmt.format(v) + (" " if v == best else "") for v in vals],
                            textposition="outside", cliponaxis=False))
     hint = "" if lower_better is None else (" (lower is better)" if lower_better else " (higher is better)")
     fig.update_layout(height=240, showlegend=False, title=dict(text=title + hint, font=dict(size=13)), **LAYOUT)
@@ -151,7 +151,7 @@ def _results(rep, live):
         nums = [v for _, v in vals if v is not None]
         best = (min if lower else max)(nums) if lower is not None and len(set(nums)) > 1 else None
         body += f"<tr><td>{name}</td>" + "".join(
-            f'<td style="font-weight:{700 if v == best else 400}">{_fmt(v, fmt)}{" ✓" if v == best else ""}</td>'
+            f'<td style="font-weight:{700 if v == best else 400}">{_fmt(v, fmt)}{" " if v == best else ""}</td>'
             for _, v in vals) + "</tr>"
     st.markdown(f'<table class="data"><tr><th>Measured</th>{head}</tr>{body}</table>', unsafe_allow_html=True)
     g = st.columns(3)

@@ -20,8 +20,8 @@ LAYOUT = dict(paper_bgcolor="#fff", plot_bgcolor="#fff", margin=dict(l=10, r=10,
               font=dict(family="Barlow, sans-serif", color="#5E6975", size=12))
 MONTHS = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"]
 SEVERITY = [  # same grouping as the old overview
-    ("High (red light / triple / wrong way)", "#C62828", ["RED_LIGHT_JUMP", "TRIPLE_RIDING", "WRONG_WAY"]),
-    ("Medium (helmet)", "#E0A100", ["NO_HELMET"]),
+    ("High (red light / triple / wrong way / unsafe)", "#C62828", ["RED_LIGHT_JUMP", "TRIPLE_RIDING", "WRONG_WAY", "UNSAFE_MOVEMENT"]),
+    ("Medium (helmet / parking)", "#E0A100", ["NO_HELMET", "ILLEGAL_PARKING"]),
     ("Low (seatbelt / phone)", "#2E7D4F", ["MOBILE_PHONE_WHILE_DRIVING", "NO_SEATBELT"]),
 ]
 
